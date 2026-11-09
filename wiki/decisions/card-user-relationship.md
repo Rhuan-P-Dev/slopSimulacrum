@@ -102,6 +102,13 @@ route, never triggered by a load or a refresh.
   degrades to "nothing judged" and never blanks the gallery (E-2).
 - A judgment updates only that row's zone in place, so the row's photo
   `<img>` keeps its loaded state instead of being re-fetched.
+- The Create world menu (CreateWorldPanel) shows the same fact as a badge:
+  a card with a fresh judgment renders the verdict's label under its row
+  (the full verdict in the hover title), read from the same overlay
+  endpoint. It tells the operator, before creating the world, which of the
+  bindings they pick will deliver a relationship to the chosen target
+  (`card-user-relationship-context.md`); a failed overlay degrades to no
+  badges, never to an unreadable list (E-2).
 
 ## Consequences
 

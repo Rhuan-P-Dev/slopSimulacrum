@@ -30,6 +30,16 @@
  * persona (`buildCardProfile`: personality, else description, else the token-free
  * default) and the literal token the prompt substitution matches.
  *
+ * A fresh judgment is also made visible here (owner call): a card whose
+ * `{{user}}` relationship was judged - and is still fresh, per the sidecar's
+ * persona-hash rule - carries a small badge under its row showing the verdict's
+ * label (`judgedBadgeHtml`, the full verdict in the hover title). It reads the
+ * same overlay the Cards tab uses (`GET /agent-body/cards/user-relationships`,
+ * one endpoint, two panels) and tells the operator, before creating the world,
+ * which of the bindings they pick will deliver a relationship to the chosen
+ * target (`wiki/decisions/card-user-relationship-context.md`). A failed overlay
+ * fetch degrades to "nothing judged" and never blocks the list (E-2).
+ *
  * The card list is `/agent-body/cards` - the same read the Agent Body overlay
  * uses. One endpoint, two panels: the fields are the same ones (a card's id is
  * the file's basename either way), and a second list endpoint would be a second
@@ -61,6 +71,8 @@ export class CreateWorldPanel {
         this._onCreated = typeof onCreated === 'function' ? onCreated : () => {};
         /** @private */
         this._cards = [];
+        /** @private cardId to the fresh judged relationship (the overlay read; none when the fetch fails or the card is unjudged) */
+        this._relationships = {};
         /** @private */
         this._busy = false;
         this._renderControls();
@@ -76,10 +88,19 @@ export class CreateWorldPanel {
     async refresh() {
         this._setStatus('Loading cards...', 'dim');
         try {
-            const res = await fetch('/agent-body/cards');
+            const [res, relsRes] = await Promise.all([
+                fetch('/agent-body/cards'),
+                fetch('/agent-body/cards/user-relationships').catch((error) => {
+                    // the list is the primary content; the judgments are an
+                    // overlay, so a failure there degrades to none (E-2).
+                    ClientLogger.error('CreateWorldPanel', 'relationship overlay failed', error);
+                    return null;
+                })
+            ]);
             const payload = await readJson(res);
             if (!res.ok) throw new Error(payload?.error?.message || `cards request failed (${res.status})`);
             this._cards = Array.isArray(payload.cards) ? payload.cards : [];
+            this._relationships = await readRelationships(relsRes);
             this._renderCards();
             this._setStatus(this._countLine(), 'dim');
         } catch (error) {
@@ -175,6 +196,7 @@ export class CreateWorldPanel {
             const userTitle = hasUser
                 ? 'Whom this card treats as its {{user}}. Applies only while the card is selected to spawn.'
                 : 'This card\'s prompt carries no {{user}} token, so there is nothing to bind.';
+            const rel = this._relationships[card.cardId] || null;
             return '' +
                 '<div class="cw-row">' +
                 '<label class="cw-pick">' +
@@ -182,6 +204,7 @@ export class CreateWorldPanel {
                 '<span class="cw-name">' + escapeText(card.name || card.cardId) + '</span>' +
                 '<span class="cw-id">' + escapeText(card.cardId) + '</span>' +
                 '<span class="cw-desc">' + escapeText(description) + (card.description?.length > 140 ? '...' : '') + '</span>' +
+                judgedBadgeHtml(rel) +
                 '</label>' +
                 '<label class="cw-user' + (hasUser ? '' : ' cw-user--locked') + '" title="' + userTitle + '">' +
                 '<span class="cw-user-label">its {{user}} is</span>' +
@@ -284,6 +307,28 @@ export function cardHasUserPlaceholder(card) {
 }
 
 /**
+ * The judged-relationship badge for one card row, or the empty string when
+ * the card has no fresh judgment: the verdict's label in the badge, the full
+ * verdict (label, summary, and when) in the `title` attribute. Everything is
+ * escaped on the way in - the label and the summary are model output (SEC-6
+ * posture, same as the Cards tab's zone), and the card's files are written by
+ * people this server does not know.
+ * @param {{label?: string, summary?: string, judgedAt?: string|null}|null|undefined} relationship -
+ *   the fresh judgment from `GET /agent-body/cards/user-relationships` (only
+ *   fresh verdicts are served, so a presence here means "judged and current").
+ * @returns {string} HTML (possibly empty)
+ */
+export function judgedBadgeHtml(relationship) {
+    if (!relationship || typeof relationship !== 'object' || Array.isArray(relationship)) return '';
+    const label = typeof relationship.label === 'string' ? relationship.label.trim() : '';
+    if (label === '') return '';
+    const summary = typeof relationship.summary === 'string' ? relationship.summary.trim() : '';
+    const when = typeof relationship.judgedAt === 'string' ? ' (judged ' + relationship.judgedAt + ')' : '';
+    const title = '{{user}}: ' + label + (summary !== '' ? ' - ' + summary : '') + when;
+    return '<span class="cw-judged" title="' + escapeText(title) + '">{{user}}: <b>' + escapeText(label) + '</b></span>';
+}
+
+/**
  * Parse a response as JSON without throwing on a body that is not JSON.
  * @param {Response} res
  * @returns {Promise<Object|null>}
@@ -294,6 +339,32 @@ async function readJson(res) {
     } catch {
         return null;
     }
+}
+
+/**
+ * The fresh judged relationships from the overlay endpoint, or none on any
+ * failure (a derived overlay: a failed fetch must not blank the list, E-2).
+ * Mirrors the Cards tab's own reader of the same endpoint (CHG-2).
+ * @param {Response|null} response
+ * @returns {Promise<Object<string, {label: string, summary: string, judgedAt: string|null}>>}
+ */
+async function readRelationships(response) {
+    if (!response || !response.ok) return {};
+    const payload = await readJson(response);
+    const rels = payload && typeof payload.relationships === 'object' && payload.relationships && !Array.isArray(payload.relationships)
+        ? payload.relationships
+        : {};
+    const out = {};
+    for (const [cardId, rel] of Object.entries(rels)) {
+        if (rel && typeof rel === 'object' && typeof rel.label === 'string' && typeof rel.summary === 'string') {
+            out[cardId] = {
+                label: rel.label,
+                summary: rel.summary,
+                judgedAt: typeof rel.judgedAt === 'string' ? rel.judgedAt : null
+            };
+        }
+    }
+    return out;
 }
 
 export default CreateWorldPanel;

@@ -264,6 +264,28 @@
 .cw-name { color: var(--neon-green); }
 .cw-id { color: var(--text-dim); font-size: 0.85em; }
 .cw-desc { color: var(--text-dim); font-size: 0.82em; }
+
+/* The judged-relationship badge (CreateWorldPanel.judgedBadgeHtml): the
+   verdict's label on its own line under the row's identity cells - the
+   grid-column span drops it onto the pick side's next row. The full verdict
+   (summary, and when) is in the title attribute. Only FRESH judgments are
+   served by the overlay endpoint, so a badge means a binding made on this
+   row will deliver this relationship to the chosen target at world create
+   (card-user-relationship-context.md). */
+.cw-judged {
+    grid-column: 1 / -1;
+    justify-self: start;
+    margin-top: 2px;
+    padding: 1px 6px;
+    font-size: 0.82em;
+    color: var(--text-dim);
+    background: #0d0d0d;
+    border: 1px solid #333;
+    border-radius: 3px;
+}
+
+.cw-judged b { color: var(--neon-green); font-weight: 600; }
+
 .cw-empty { color: var(--text-dim); padding: 10px; }
 
 /* ------------------------------------------------------------------------ cards */
