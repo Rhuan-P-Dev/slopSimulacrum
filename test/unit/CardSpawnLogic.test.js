@@ -335,7 +335,7 @@ describe('CardSpawnLogic', () => {
         it('the fresh verdict of the bound source is attached to the target\'s npcConfig (the target is the card the source\'s {{user}} became)', () => {
             readFreshCardUserRelationship.mockReturnValue({
                 cardId: 'nova',
-                name: 'Nova (card payload name)',
+                name: 'SIDE-CAR-RECORDED',
                 label: 'devoted partner',
                 summary: 'Nova adores you.',
                 judgedAt: '2026-07-20T12:00:00.000Z'
@@ -344,8 +344,10 @@ describe('CardSpawnLogic', () => {
 
             const report = spawnCards(facade, { users: { nova: 'rin' } });
 
-            // the TARGET ("rin") carries the source's verdict; the name is the
-            // source's WORLD name (the spawned entity's), not the card payload's
+            // the TARGET ("rin") carries the source's verdict. The fresh-read
+            // returns the sidecar's recorded name ("SIDE-CAR-RECORDED"), but the
+            // attachment uses the SOURCE entity's WORLD name ("Name-nova") —
+            // this pins that the world name wins, not the recorded name.
             expect(facade._entities['entity-rin'].npcConfig.userRelationships).toEqual([
                 { cardId: 'nova', name: 'Name-nova', label: 'devoted partner', summary: 'Nova adores you.' }
             ]);
@@ -363,7 +365,7 @@ describe('CardSpawnLogic', () => {
             );
         });
 
-        it('a never-judged (or stale) source attaches nothing: the target stays byte-identical to before', () => {
+        it('a never-judged (or stale) source attaches nothing: the target gains no userRelationships key', () => {
             const facade = relationshipFacade(['nova', 'rin']);
 
             spawnCards(facade, { users: { nova: 'rin' } });

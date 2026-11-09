@@ -31,10 +31,14 @@ route, never triggered by a load or a refresh.
   - `POST /agent-body/cards/:cardId/user-relationship` — one LLM call; writes
     the sidecar; returns the frozen verdict plus `meta` (prompt kind and
     version, model, finish reason, latency).
-- **Judgment basis:** the card's *effective persona* — the exact precedence
-  the spawn uses (`CardSpawnLogic.buildCardProfile`: non-empty `personality`
-  wins, then `description`, then the built-in default, each trimmed), because
-  that is the text the NPC would actually carry. The prompt gets that persona
+- **Judgment basis:** the card's *effective persona* — the spawn's precedence
+  without its final fallback: a non-empty `personality` wins, then
+  `description`, each trimmed, and it stops at the empty string
+  (`CardRelationshipStore.effectivePersonaFor`) rather than the spawn's
+  built-in default. That one difference is unobservable: the default carries
+  no `{{user}}` token, so a card that reaches it throws
+  `422 CARD_USER_TOKEN_ABSENT` exactly as the spawn's own default would.
+  That persona is the text the NPC would actually carry. The prompt gets that persona
   **in full, uncapped**: the LLM is a local reasoning model with ample
   context, and a trimmed copy degrades the judgment (the operator saw it on a
   long card and asked for the full text; the token check and the persona hash

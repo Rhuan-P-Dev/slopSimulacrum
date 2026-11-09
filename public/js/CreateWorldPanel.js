@@ -206,7 +206,7 @@ export class CreateWorldPanel {
                 '<span class="cw-desc">' + escapeText(description) + (card.description?.length > 140 ? '...' : '') + '</span>' +
                 judgedBadgeHtml(rel) +
                 '</label>' +
-                '<label class="cw-user' + (hasUser ? '' : ' cw-user--locked') + '" title="' + userTitle + '">' +
+                '<label class="cw-user' + (hasUser ? '' : ' cw-user--locked') + '" title="' + escapeText(userTitle) + '">' +
                 '<span class="cw-user-label">its {{user}} is</span>' +
                 '<select class="cw-user-select">' +
                 '<option value="">(no binding: leave {{user}} as-is)</option>' +

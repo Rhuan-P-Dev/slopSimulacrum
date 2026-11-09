@@ -219,7 +219,7 @@ describe('LLMAgentController._buildSystemPrompt - the card {{user}} substitution
             expect(system.split('    - ').length - 1).toBe(1); // exactly one rendered line
         });
 
-        it('without userRelationships the section is absent (byte-identical to before)', async () => {
+        it('without userRelationships the section is absent', async () => {
             const entity = makeCardEntity('Rin', 'You are the one the droids serve.', undefined);
             const { agent, calls } = makeAgent(makeWorld(entity));
 

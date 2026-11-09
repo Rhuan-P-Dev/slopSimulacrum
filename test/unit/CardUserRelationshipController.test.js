@@ -227,6 +227,29 @@ describe('CardUserRelationshipController', () => {
         expect(relationships.nova.judgedAt).toMatch(/Z$/);
     });
 
+    it('serves no sidecar with an empty label or summary (validation parity with the spawn fresh-read)', () => {
+        // The only way a sidecar carries an empty label or summary is a
+        // hand-edited file: the judge validates non-empty before writing. The
+        // overlay must apply the SAME non-empty rule as the spawn's
+        // readFreshCardUserRelationship (CR CHG-2) — so a malformed sidecar is
+        // not served, exactly as the attachment path would reject it.
+        const persona = 'Parity: this card serves {{user}} gladly.';
+        fs.writeFileSync(path.join(tmpDir, 'parity.png'), buildCardPng({
+            name: 'Parity',
+            personality: persona,
+            description: 'a parity card'
+        }));
+        fs.writeFileSync(path.join(tmpDir, 'parity.user-relationship.json'), JSON.stringify({
+            version: SIDECAR_VERSION,
+            cardId: 'parity',
+            name: 'Parity',
+            personaHash: personaHashFor('Parity', persona),
+            judgedAt: '2026-01-01T00:00:00.000Z',
+            relationship: { label: '   ', summary: 'a valid summary.' }
+        }));
+        expect(controller.listCardUserRelationships().parity).toBeUndefined();
+    });
+
     it('judges through the description when the personality is empty (the spawn precedence)', async () => {
         await controller.judgeCardUserRelationship('desc');
         const relationships = controller.listCardUserRelationships();

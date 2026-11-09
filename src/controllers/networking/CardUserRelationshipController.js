@@ -31,8 +31,8 @@
  * (derived data is deleted, not kept, CHG-6; the housekeeping runs on the
  * command, not on a read, CR API-1). The seam also provides
  * `effectivePersonaFor`/`effectiveCardName` (the hash inputs) and
- * `readFreshCardUserRelationship` (the spawn's fresh-read), so the judge and
- * the spawn can never drift apart on the rule (CHG-2).
+ * `readFreshCardUserRelationship` (the shared fresh-read), so the overlay,
+ * the judge, and the spawn can never drift apart on the rule (CHG-2).
  *
  * Cost guard (SEC-9, the agent-body-design precedent): one LLM call per
  * explicit operator click, rate-limited in the route. The answer is small by
@@ -66,7 +66,7 @@ import {
     SIDECAR_VERSION,
     listCardFileNames,
     listCardUserRelationshipFileNames,
-    readCardUserRelationshipFile,
+    readFreshCardUserRelationship,
     writeCardUserRelationshipFile,
     deleteCardUserRelationshipFile,
     sidecarPathFor,
@@ -226,26 +226,20 @@ export default class CardUserRelationshipController {
             if (card === null) {
                 continue; // a file with no parseable payload: nothing to judge
             }
-            const record = readCardUserRelationshipFile(sidecarPathFor(this._cardDir, fileName));
-            if (record === null) {
-                continue;
-            }
-            if (record.version !== SIDECAR_VERSION) {
-                continue; // an unknown version: not served, not interpreted
-            }
-            const persona = effectivePersonaFor(card);
-            const name = effectiveCardName(card, cardId);
-            if (typeof record.personaHash !== 'string' || record.personaHash !== personaHashFor(name, persona)) {
-                continue; // the card on disk is not the one that was judged
-            }
-            const rel = record.relationship;
-            if (!rel || typeof rel.label !== 'string' || typeof rel.summary !== 'string') {
-                continue; // a shape the validator never wrote: not served
+            // Delegate the freshness rule to the shared seam read (CHG-2 — the
+            // overlay, the judge, and the spawn all compose
+            // `readFreshCardUserRelationship`, so they cannot drift): a record
+            // is served only when its version, persona hash, and a non-empty
+            // label AND summary all hold. This is the exact rule the spawn's
+            // attachment path applies (validation parity).
+            const rel = readFreshCardUserRelationship(this._cardDir, cardId, card);
+            if (rel === null) {
+                continue; // never judged, stale, or malformed: not served
             }
             out[cardId] = {
                 label: rel.label.slice(0, RELATIONSHIP_LABEL_MAX_CHARS),
                 summary: rel.summary.slice(0, RELATIONSHIP_SUMMARY_MAX_CHARS),
-                judgedAt: typeof record.judgedAt === 'string' ? record.judgedAt : null
+                judgedAt: rel.judgedAt
             };
         }
         return out;
@@ -337,13 +331,14 @@ export default class CardUserRelationshipController {
                 summary: judgment.summary
             }
         };
-        // A stale verdict at this path (a previous judgment of a persona that
-        // no longer exists on disk) must not survive the re-write: delete it
-        // first, then the atomic tmp->rename writes the fresh verdict (P-3, CHG-6
-        // — derived data is deleted, not kept). The delete is a no-op when
-        // nothing is there and is synchronous, so nothing can read the sidecar
-        // half-replaced.
-        deleteCardUserRelationshipFile(sidecarPathFor(this._cardDir, cardFileName));
+        // The atomic tmp->rename write (P-3) replaces whatever sidecar sits at
+        // this path — including a stale one from a superseded persona — in a
+        // single rename, so no reader ever sees a half-replaced file. There is
+        // deliberately no separate delete before it: deleting first would only
+        // risk losing the previous valid verdict if the write then failed
+        // (ENOSPC, a refused rename) — the rename is the replacement. Sidecars
+        // whose card is gone are still deleted, by `_sweepOrphanSidecars`, as
+        // derived data (CHG-6).
         writeCardUserRelationshipFile(sidecarPathFor(this._cardDir, cardFileName), record);
         this._sweepOrphanSidecars(cardFiles);
 

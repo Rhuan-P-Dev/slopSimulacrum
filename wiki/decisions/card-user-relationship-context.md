@@ -87,22 +87,24 @@ judged**.
 - Re-judging a card and then recreating the world changes what the target
   sees; the target's entity is not mutated in place (the attachment is
   per-spawn, like the binding).
-- The spawn does at most one extra PNG read per bound source, at world create
-  only — never per round, never in the hot path (CR PERF-4).
+- The spawn re-reads each bound source's PNG once, at world create only (to
+  recompute its persona hash for the freshness check) — never per round,
+  never in the hot path (CR PERF-4). The test pins the fresh-judgment read
+  (one `readFreshCardUserRelationship` call per source); the raw PNG read is
+  the seam's single read per file.
 
 ## How it is enforced
 
 - `test/unit/CardSpawnLogic.test.js` (the `attachBoundUserRelationships`
   block): the verdict lands in the target's `npcConfig` with the source's
   world name, never in the source's; stale/missing verdicts attach nothing
-  (the target stays byte-identical to before); both-present-only; a light
+  (the target gains no `userRelationships` key); both-present-only; a light
   facade without an entity store degrades without throwing; no mapping means
   the path is never entered.
 - `test/unit/CardUserPrompt.test.js` (the judged-relationships block): the
   section renders in the target's system prompt with `{{user}}` resolved to
   the target's own name, sits between the persona line and the world rules,
-  filters malformed entries, and is absent (byte-identical) when there is
-  nothing to attach.
+  filters malformed entries, and is absent when there is nothing to attach.
 - `test/unit/CardRelationshipStore.test.js` (the freshness block): the shared
   helpers — the hash is deterministic and both inputs feed it, the effective
   persona mirrors the spawn precedence and stops at the empty string (the
@@ -116,5 +118,6 @@ judged**.
 
 - `wiki/decisions/card-user-mapping.md` — the binding this feature joins to.
 - `wiki/decisions/card-user-relationship.md` — the judgment and the sidecar
-  this feature reads (its "where it does not reach" note is updated by this).
+  this feature reads (its "Consequences" note covers where the attachment
+  reaches and where it stops).
 - `wiki/decisions/llm-npc-prompt.md` — the prompt assembly this section joins.
