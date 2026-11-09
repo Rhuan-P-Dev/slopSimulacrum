@@ -22,11 +22,16 @@ import {
     SIDECAR_VERSION,
     sidecarNameFor,
     sidecarPathFor,
+    sidecarPathForId,
     listCardFileNames,
     listCardUserRelationshipFileNames,
     readCardUserRelationshipFile,
     writeCardUserRelationshipFile,
-    deleteCardUserRelationshipFile
+    deleteCardUserRelationshipFile,
+    personaHashFor,
+    effectivePersonaFor,
+    effectiveCardName,
+    readFreshCardUserRelationship
 } from '../../src/utils/CardRelationshipStore.js';
 
 let tmpDir;
@@ -90,6 +95,117 @@ describe('list filters', () => {
         const missing = path.join(tmpDir, 'no-such-dir');
         expect(listCardFileNames(missing)).toEqual([]);
         expect(listCardUserRelationshipFileNames(missing)).toEqual([]);
+    });
+});
+
+describe('freshness contract (shared by the judge and the spawn)', () => {
+    const PERSONA = 'Nova adores {{user}} and would cross the world to sit beside {{user}}.';
+
+    it('personaHashFor is a deterministic sha-256 of name and persona (D-1)', () => {
+        const h1 = personaHashFor('Nova', PERSONA);
+        expect(h1).toBe(personaHashFor('Nova', PERSONA));
+        expect(h1).toMatch(/^[0-9a-f]{64}$/);
+        // name and persona both feed the hash: changing either changes it
+        expect(personaHashFor('Rin', PERSONA)).not.toBe(h1);
+        expect(personaHashFor('Nova', 'a different persona')).not.toBe(h1);
+        // the join is meaningful: name and persona are not concatenated raw
+        expect(personaHashFor('A', 'B')).not.toBe(personaHashFor('AB', ''));
+    });
+
+    it('effectivePersonaFor: personality wins, then description, else empty (CHG-2/CHG-7)', () => {
+        expect(effectivePersonaFor({ personality: '  a  ', description: 'b' })).toBe('a');
+        expect(effectivePersonaFor({ personality: '   ', description: ' b ' })).toBe('b');
+        expect(effectivePersonaFor({ personality: 'a' })).toBe('a');
+        expect(effectivePersonaFor({ description: 'b' })).toBe('b');
+        expect(effectivePersonaFor({ personality: '', description: '' })).toBe('');
+        expect(effectivePersonaFor(null)).toBe('');
+        expect(effectivePersonaFor(undefined)).toBe('');
+        expect(effectivePersonaFor({})).toBe('');
+    });
+
+    it('effectiveCardName: the trimmed card name, or the card id when the payload has none', () => {
+        expect(effectiveCardName({ name: '  Nova  ' }, 'nova-stem')).toBe('Nova');
+        expect(effectiveCardName({ name: '   ' }, 'nova-stem')).toBe('nova-stem');
+        expect(effectiveCardName({}, 'nova-stem')).toBe('nova-stem');
+        expect(effectiveCardName(null, 'nova-stem')).toBe('nova-stem');
+        expect(effectiveCardName({ name: 42 }, 'nova-stem')).toBe('nova-stem');
+    });
+
+    it('sidecarPathForId builds the sidecar path from the id alone (the spawn lookup)', () => {
+        expect(sidecarPathForId('/cards', 'nova')).toBe(path.join('/cards', 'nova.user-relationship.json'));
+        // a stem with a dot stays intact: the id is the whole stem
+        expect(sidecarPathForId('/cards', 'nova.2')).toBe(path.join('/cards', 'nova.2.user-relationship.json'));
+    });
+
+    describe('readFreshCardUserRelationship', () => {
+        /** Write a sidecar for a card id with the given record fields. */
+        function writeFresh(cardId, card, overrides = {}) {
+            const record = {
+                version: SIDECAR_VERSION,
+                cardId,
+                name: effectiveCardName(card, cardId),
+                personaHash: personaHashFor(effectiveCardName(card, cardId), effectivePersonaFor(card)),
+                judgedAt: '2026-07-20T12:00:00.000Z',
+                relationship: { label: 'devoted partner', summary: 'Nova adores you.' },
+                ...overrides
+            };
+            writeCardUserRelationshipFile(sidecarPathForId(tmpDir, cardId), record);
+            return record;
+        }
+
+        const card = { name: 'Nova', personality: PERSONA };
+
+        it('yields null when there is no sidecar (the normal "never judged" state)', () => {
+            expect(readFreshCardUserRelationship(tmpDir, 'nova', card)).toBeNull();
+        });
+
+        it('returns the verdict for a fresh sidecar (version + hash + shape all match)', () => {
+            writeFresh('nova', card);
+            expect(readFreshCardUserRelationship(tmpDir, 'nova', card)).toEqual({
+                cardId: 'nova',
+                name: 'Nova',
+                label: 'devoted partner',
+                summary: 'Nova adores you.',
+                judgedAt: '2026-07-20T12:00:00.000Z'
+            });
+        });
+
+        it('yields null when the persona moved on (hash mismatch: the card was replaced)', () => {
+            writeFresh('nova', card);
+            const replaced = { name: 'Nova', personality: 'Nova has grown cold toward {{user}}.' };
+            expect(readFreshCardUserRelationship(tmpDir, 'nova', replaced)).toBeNull();
+        });
+
+        it('yields null when the display name moved on (the name feeds the hash too)', () => {
+            writeFresh('nova', card);
+            expect(readFreshCardUserRelationship(tmpDir, 'nova', { name: 'Renamed', personality: PERSONA })).toBeNull();
+        });
+
+        it('yields null for an unknown sidecar version (not served, not migrated, P-1)', () => {
+            writeFresh('nova', card, { version: 99 });
+            expect(readFreshCardUserRelationship(tmpDir, 'nova', card)).toBeNull();
+        });
+
+        it('yields null for a malformed relationship (an empty label or summary is not a verdict)', () => {
+            writeFresh('nova', card, { relationship: { label: '', summary: 's' } });
+            expect(readFreshCardUserRelationship(tmpDir, 'nova', card)).toBeNull();
+            writeFresh('nova', card, { relationship: { label: 'l', summary: '   ' } });
+            expect(readFreshCardUserRelationship(tmpDir, 'nova', card)).toBeNull();
+            writeFresh('nova', card, { relationship: null });
+            expect(readFreshCardUserRelationship(tmpDir, 'nova', card)).toBeNull();
+        });
+
+        it('yields null when the card payload is unreadable (the hash cannot match what the judge saw)', () => {
+            writeFresh('nova', card);
+            expect(readFreshCardUserRelationship(tmpDir, 'nova', null)).toBeNull();
+        });
+
+        it('degrades a missing judgedAt to null but still serves the rest', () => {
+            writeFresh('nova', card, { judgedAt: undefined });
+            const out = readFreshCardUserRelationship(tmpDir, 'nova', card);
+            expect(out).not.toBeNull();
+            expect(out.judgedAt).toBeNull();
+        });
     });
 });
 

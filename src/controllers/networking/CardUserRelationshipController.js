@@ -7,9 +7,10 @@
  * with its `{{user}}` placeholder, and the persistence of that judgment. The
  * judgment runs against the card's EFFECTIVE persona — the exact precedence
  * the spawn uses (`CardSpawnLogic.buildCardProfile`: a non-empty `personality`
- * wins, then `description`, then the built-in default, each trimmed) —
- * because that is the text the NPC would actually carry into the world, and
- * the `{{user}}` token this feature is about lives in that text
+ * wins, then `description`, each trimmed; a card with neither has no persona
+ * to judge, not the spawn's default text, which is spawn-owned) — because that
+ * is the text the NPC would actually carry into the world, and the `{{user}}`
+ * token this feature is about lives in that text
  * (wiki/decisions/card-user-mapping.md). A card whose effective persona
  * carries no literal `{{user}}` token cannot be judged: this controller
  * throws `CardUserTokenAbsentError` and the route answers 422
@@ -23,11 +24,15 @@
  * data seam `CardRelationshipStore`): the PNG is never written (the
  * repository's language policy, AGENTS.md "Language policy (hard rule)")
  * and the world definition (`data/mods/`) is untouched (CR B-2). The sidecar
- * carries a sha-256 hash of the persona it was judged from; when the card
- * file is replaced and the hash no longer matches, the judgment is invalid —
- * it is not served, and the next judgment action deletes sidecars that no
- * card (or no matching persona) owns (derived data is deleted, not kept,
- * CHG-6; the housekeeping runs on the command, not on a read, CR API-1).
+ * carries a sha-256 hash of the persona it was judged from (`personaHashFor`,
+ * owned by the seam); when the card file is replaced and the hash no longer
+ * matches, the judgment is invalid — it is not served, and the next judgment
+ * action deletes sidecars that no card (or no matching persona) owns
+ * (derived data is deleted, not kept, CHG-6; the housekeeping runs on the
+ * command, not on a read, CR API-1). The seam also provides
+ * `effectivePersonaFor`/`effectiveCardName` (the hash inputs) and
+ * `readFreshCardUserRelationship` (the spawn's fresh-read), so the judge and
+ * the spawn can never drift apart on the rule (CHG-2).
  *
  * Cost guard (SEC-9, the agent-body-design precedent): one LLM call per
  * explicit operator click, rate-limited in the route. The answer is small by
@@ -53,7 +58,6 @@
  */
 
 import path from 'node:path';
-import crypto from 'node:crypto';
 import { performance } from 'node:perf_hooks';
 import Logger from '../../utils/Logger.js';
 import { readCharaCard } from '../../utils/PngCharaReader.js';
@@ -65,7 +69,10 @@ import {
     readCardUserRelationshipFile,
     writeCardUserRelationshipFile,
     deleteCardUserRelationshipFile,
-    sidecarPathFor
+    sidecarPathFor,
+    personaHashFor,
+    effectivePersonaFor,
+    effectiveCardName
 } from '../../utils/CardRelationshipStore.js';
 
 /**
@@ -226,8 +233,8 @@ export default class CardUserRelationshipController {
             if (record.version !== SIDECAR_VERSION) {
                 continue; // an unknown version: not served, not interpreted
             }
-            const persona = this._effectivePersona(card);
-            const name = typeof card.name === 'string' && card.name.trim() !== '' ? card.name.trim() : cardId;
+            const persona = effectivePersonaFor(card);
+            const name = effectiveCardName(card, cardId);
             if (typeof record.personaHash !== 'string' || record.personaHash !== personaHashFor(name, persona)) {
                 continue; // the card on disk is not the one that was judged
             }
@@ -298,12 +305,12 @@ export default class CardUserRelationshipController {
             throw new CardNotReadableError(id, readFailure);
         }
 
-        const persona = this._effectivePersona(card);
+        const persona = effectivePersonaFor(card);
         if (!persona.includes(USER_TOKEN)) {
             throw new CardUserTokenAbsentError(id);
         }
 
-        const name = typeof card.name === 'string' && card.name.trim() !== '' ? card.name.trim() : id;
+        const name = effectiveCardName(card, id);
         const messages = [
             { role: 'system', content: this._buildSystemPrompt() },
             { role: 'user', content: this._buildUserPrompt(name, persona) }
@@ -361,27 +368,6 @@ export default class CardUserRelationshipController {
                 latencyMs
             })
         });
-    }
-
-    /**
-     * The effective persona — a MIRROR of `CardSpawnLogic.buildCardProfile`
-     * (same precedence, same trimming): a non-empty `personality` wins, then
-     * `description`, then the built-in default. The built-in default carries
-     * no `{{user}}` token, so for this feature it collapses to the empty
-     * string and is rejected by the token check — the default text itself is
-     * owned by the spawn feature and is not duplicated here (CHG-7).
-     * @private
-     * @param {{name?: string, personality?: string, description?: string}} card
-     * @returns {string}
-     */
-    _effectivePersona(card) {
-        if (typeof card.personality === 'string' && card.personality.trim() !== '') {
-            return card.personality.trim();
-        }
-        if (typeof card.description === 'string' && card.description.trim() !== '') {
-            return card.description.trim();
-        }
-        return '';
     }
 
     /**
@@ -511,17 +497,4 @@ export default class CardUserRelationshipController {
             }
         }
     }
-}
-
-/**
- * The persona fingerprint a sidecar is judged from (D-1: a pure sha-256 of
- * the display name and the effective persona — no clock, no randomness). When
- * the card file is replaced, a mismatched fingerprint is the signal that the
- * stored judgment no longer describes the card on disk.
- * @param {string} name - The card display name used in the judgment.
- * @param {string} persona - The effective persona used in the judgment.
- * @returns {string} - Hex digest.
- */
-export function personaHashFor(name, persona) {
-    return crypto.createHash('sha256').update(`${name}\n${persona}`, 'utf8').digest('hex');
 }

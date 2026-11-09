@@ -20,7 +20,6 @@ import CardUserRelationshipController, {
     CardNotReadableError,
     CardUserTokenAbsentError,
     RelationshipJudgmentError,
-    personaHashFor,
     PROMPT_KIND,
     PROMPT_VERSION,
     LLM_CARD_USER_RELATIONSHIP_MAX_TOKENS,
@@ -29,7 +28,7 @@ import CardUserRelationshipController, {
     RELATIONSHIP_SUMMARY_MAX_CHARS
 } from '../../src/controllers/networking/CardUserRelationshipController.js';
 import { LLMError } from '../../src/utils/CustomErrors.js';
-import { SIDECAR_VERSION } from '../../src/utils/CardRelationshipStore.js';
+import { SIDECAR_VERSION, personaHashFor } from '../../src/utils/CardRelationshipStore.js';
 
 const NOVA_PERSONA = 'Nova adores {{user}} and would cross the world to sit beside {{user}}.';
 const DESC_PERSONA = 'Desc treats {{user}} like a nuisance to be endured.';

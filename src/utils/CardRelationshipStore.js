@@ -30,11 +30,21 @@
  * Writes are atomic (tmp file + rename, P-3): an interrupted judgment never
  * leaves a half-written sidecar that a later read could take for a verdict.
  *
+ * The store also owns the sidecar's FRESHNESS contract — `personaHashFor`,
+ * `effectivePersonaFor` and `effectiveCardName` — because the hash is part of
+ * the record's shape, and two consumers must agree on it exactly:
+ * the judgment command (`CardUserRelationshipController`, which writes and
+ * serves) and the world-create spawn (`CardSpawnLogic`, which reads it to
+ * attach the judged relationship to a card's bound target,
+ * wiki/decisions/card-user-relationship-context.md). Both compose the same
+ * helpers defined here, so a rule change lands in one place (CHG-2).
+ *
  * @module src/utils/CardRelationshipStore
  */
 
 import fs from 'node:fs';
 import path from 'node:path';
+import crypto from 'node:crypto';
 import Logger from './Logger.js';
 import { CARD_IMAGE_EXTS } from './CardImageTypes.js';
 
@@ -175,4 +185,103 @@ export function deleteCardUserRelationshipFile(fullPath) {
         }
         throw err;
     }
+}
+
+// ---------------------------------------------------------------------------
+// Freshness contract (shared by the judge and the spawn — see module header)
+// ---------------------------------------------------------------------------
+
+/**
+ * The persona hash a sidecar carries: the sha-256 of the card's display name
+ * and its effective persona, joined by a newline (the record's `personaHash`).
+ * It is the staleness test — a sidecar is fresh when this still matches the
+ * card on disk, and the two consumers (judge, spawn) compute it identically.
+ * @param {string} name - the card's display name (see `effectiveCardName`)
+ * @param {string} persona - the effective persona (see `effectivePersonaFor`)
+ * @returns {string} hex digest
+ */
+export function personaHashFor(name, persona) {
+    return crypto.createHash('sha256').update(`${name}\n${persona}`, 'utf8').digest('hex');
+}
+
+/**
+ * A card's effective persona — the exact precedence the spawn renders into
+ * the NPC (`CardSpawnLogic.buildCardProfile`): a non-empty `personality` wins,
+ * then `description`, each trimmed. It deliberately stops at the empty string
+ * and never falls back to the spawn's default text: the default is spawn-
+ * owned and carries no `{{user}}` token, so a card that reaches it has nothing
+ * to judge or to hash against (CHG-7 — it is not duplicated here).
+ * @param {{personality?: string, description?: string}|null|undefined} card
+ * @returns {string}
+ */
+export function effectivePersonaFor(card) {
+    if (!card) return '';
+    if (typeof card.personality === 'string' && card.personality.trim() !== '') {
+        return card.personality.trim();
+    }
+    if (typeof card.description === 'string' && card.description.trim() !== '') {
+        return card.description.trim();
+    }
+    return '';
+}
+
+/**
+ * The display name the judgment and the sidecar use: the card's trimmed
+ * `name` from its payload, or the card id (the file stem) when the payload
+ * has none — the same derivation the spawn uses for the entity's name, so
+ * the hash input and the world's name agree on one card (CHG-2).
+ * @param {{name?: string}|null|undefined} card
+ * @param {string} cardId
+ * @returns {string}
+ */
+export function effectiveCardName(card, cardId) {
+    const name = card && typeof card.name === 'string' ? card.name.trim() : '';
+    return name !== '' ? name : cardId;
+}
+
+/**
+ * The full sidecar path for a card by its id (the file stem, no extension)
+ * — the lookup the spawn uses, which knows the id but not the file name
+ * (a card id IS its stem, by construction of `readCardFiles`).
+ * @param {string} cardDir
+ * @param {string} cardId
+ * @returns {string}
+ */
+export function sidecarPathForId(cardDir, cardId) {
+    return path.join(cardDir, `${cardId}${SIDECAR_SUFFIX}`);
+}
+
+/**
+ * Read a card's judged relationship only when it is still FRESH — the
+ * freshness rule the judgment command applies to its own records (P-1):
+ * the record exists, carries the current `SIDECAR_VERSION`, its
+ * `personaHash` still matches the card on disk (name + effective persona),
+ * and its `relationship` is well-formed (a non-empty label and a non-empty
+ * summary). Anything else degrades to `null` — a missing file is the normal
+ * state (no judgment yet), and a stale or malformed record is treated as
+ * "no judgment", never served and never fatal (P-7).
+ * @param {string} cardDir
+ * @param {string} cardId
+ * @param {{name?: string, personality?: string, description?: string}|null} card -
+ *   the card's embedded payload (null when the file is unreadable).
+ * @returns {{cardId: string, name: string, label: string, summary: string, judgedAt: string|null}|null}
+ */
+export function readFreshCardUserRelationship(cardDir, cardId, card) {
+    const record = readCardUserRelationshipFile(sidecarPathForId(cardDir, cardId));
+    if (!record || record.version !== SIDECAR_VERSION) return null;
+    const name = effectiveCardName(card, cardId);
+    if (typeof record.personaHash !== 'string' || record.personaHash !== personaHashFor(name, effectivePersonaFor(card))) {
+        return null;
+    }
+    const rel = record.relationship;
+    if (!rel || typeof rel !== 'object' || Array.isArray(rel)) return null;
+    if (typeof rel.label !== 'string' || rel.label.trim() === '') return null;
+    if (typeof rel.summary !== 'string' || rel.summary.trim() === '') return null;
+    return {
+        cardId: typeof record.cardId === 'string' && record.cardId !== '' ? record.cardId : cardId,
+        name: typeof record.name === 'string' && record.name.trim() !== '' ? record.name : name,
+        label: rel.label,
+        summary: rel.summary,
+        judgedAt: typeof record.judgedAt === 'string' ? record.judgedAt : null
+    };
 }
