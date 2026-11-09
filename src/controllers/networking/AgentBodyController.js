@@ -368,7 +368,8 @@ class AgentBodyController {
      * @returns {Promise<{
      *   card: {cardId: string, name: string, description: string, personality: string},
      *   body: {blueprintId: string, rationale: string, structure: object, components: Array, garments: Array, internalComponents: Array, outfit?: Array},
-     *   meta: {promptKind: string, promptVersion: string, promptMessages: Array, model: string, finishReason: string, latencyMs: number}
+     *   meta: {promptKind: string, promptVersion: string, promptMessages: Array, model: string, finishReason: string, latencyMs: number},
+     *   organsByComponent: Object<string, Array<string>>
      * }>}
      * @throws {CardNotFoundError} - no card PNG matches cardId.
      * @throws {DesignValidationError} - the model output failed validation (rule list in errors).
@@ -427,6 +428,12 @@ class AgentBodyController {
             { promptKind: PROMPT_KIND, promptVersion: PROMPT_VERSION }
         );
 
+        // Read-only display context for the dev panel: the organs each body part
+        // actually installs (world parts take the world recipe, new parts take
+        // this design's recipe). Outside `body` on purpose - `body` is exactly
+        // what Save posts, and the display map is not design data.
+        const organsByComponent = this._organsByComponent(design);
+
         return {
             card: identity,
             body: design,
@@ -437,8 +444,61 @@ class AgentBodyController {
                 model: LLMController.DEFAULT_MODEL,
                 finishReason: full.finishReason,
                 latencyMs
-            }
+            },
+            organsByComponent
         };
+    }
+
+    /**
+     * The organs each part of the designed body carries, keyed by component name
+     * in tree order (first encounter). A part's organs come from the recipe that
+     * defines it: world parts take the world's recipe (`this.components`), new
+     * parts take this design's own recipe (`internalComponents`). Parts with no
+     * organs are ABSENT from the map - absence IS the "no organs" claim, never
+     * an empty claim. Frozen: this is read-only display context, not design data
+     * (Save posts `body` alone).
+     */
+    _organsByComponent(design) {
+        const recipeByComponent = new Map();
+        if (Array.isArray(design.components)) {
+            design.components.forEach((recipe) => {
+                if (recipe && typeof recipe.name === 'string') {
+                    recipeByComponent.set(recipe.name, recipe);
+                }
+            });
+        }
+        const organsByComponent = {};
+        const walk = (node) => {
+            if (!node || typeof node !== 'object' || Array.isArray(node)) return;
+            const children = Array.isArray(node.children) ? node.children : [];
+            const name = node.component;
+            if (typeof name !== 'string' || Object.hasOwn(organsByComponent, name)) {
+                // An already-listed part still has a subtree: walk its children
+                // so a deeper part (world or new) is not missed.
+                children.forEach((child) => walk(child));
+                return;
+            }
+            let organs;
+            if (recipeByComponent.has(name)) {
+                const recipe = recipeByComponent.get(name);
+                organs = Array.isArray(recipe.internalComponents) ? recipe.internalComponents : [];
+            } else {
+                organs = (this.components[name] && Array.isArray(this.components[name].organs))
+                    ? this.components[name].organs
+                    : [];
+            }
+            // A recipe's `internalComponents` may hold { type, grants } objects
+            // (the model-side shape); the tree only needs the type names.
+            const names = organs
+                .map((ic) => (typeof ic === 'string' ? ic : (ic && typeof ic.type === 'string' ? ic.type : null)))
+                .filter(Boolean);
+            if (names.length > 0) organsByComponent[name] = Object.freeze(names);
+            children.forEach((child) => walk(child));
+        };
+        if (design.structure && typeof design.structure === 'object') {
+            walk(design.structure);
+        }
+        return Object.freeze(organsByComponent);
     }
 
     // ================================================================
@@ -742,7 +802,7 @@ class AgentBodyController {
         const recipesByName = {};
         recipes.forEach((recipe) => {
             if (!recipe || typeof recipe !== 'object' || typeof recipe.name !== 'string') return;
-            if (recipe.name in official) return; // shipped recipe: never restated by the package
+            if (Object.hasOwn(official, recipe.name)) return; // shipped recipe: never restated by the package
 
             const entry = {
                 name: recipe.name,

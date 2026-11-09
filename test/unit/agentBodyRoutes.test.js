@@ -322,11 +322,12 @@ describe('agentBodyRoutes', () => {
         }
     });
 
-    it('POST /agent-body/create → 200 echoing { card, body, meta } on success', async () => {
+    it('POST /agent-body/create → 200 echoing { card, body, meta, organsByComponent } on success', async () => {
         const { worldStateController, designer } = makeDesignerStub();
         const design = {
             card: { cardId: 'nova', name: 'Nova', description: 'x', personality: 'y' },
             body: { blueprintId: 'novaRunner', rationale: 'fits her job', structure: { component: 'm1Head' }, components: [] },
+            organsByComponent: {},
             meta: { promptKind: 'agent-body-design', promptVersion: '1.0.0', model: 'test-model', finishReason: 'stop', latencyMs: 1200 }
         };
         designer.designBody.mockResolvedValueOnce(design);

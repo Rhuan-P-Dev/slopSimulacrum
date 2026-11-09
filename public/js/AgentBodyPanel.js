@@ -313,7 +313,11 @@ export class AgentBodyPanel {
         parts.push(this._headerHtml(p.card));
         // Rendered from the working copy, so what the tick boxes show is what Save
         // posts - not what the model happened to answer.
-        parts.push(this._designSection(this._workingDesign));
+        const organsByComponent = (p.organsByComponent &&
+            typeof p.organsByComponent === 'object' && !Array.isArray(p.organsByComponent))
+            ? p.organsByComponent
+            : {};
+        parts.push(this._designSection(this._workingDesign, organsByComponent));
         parts.push(this._callMetaSection(p.meta));
         parts.push(this._promptsSection(p.meta));
         parts.push(this._section('Raw response (JSON)', '<pre class="agent-body-pre">' + this._json(p) + '</pre>'));
@@ -336,7 +340,7 @@ export class AgentBodyPanel {
         return text.length <= maxChars ? text : text.slice(0, maxChars) + '…';
     }
 
-    _designSection(body) {
+    _designSection(body, organsByComponent = {}) {
         if (!body || typeof body !== 'object') {
             return this._section('Design', '<p class="agent-body-empty">no design returned</p>');
         }
@@ -348,12 +352,15 @@ export class AgentBodyPanel {
             parts.push('<p class="agent-body-rationale">' + this._esc(body.rationale) + '</p>');
         }
         const tree = body.structure && typeof body.structure === 'object'
-            ? this._treeHtml(body.structure, '')
+            ? this._treeHtml(body.structure, '', organsByComponent)
             : '<p class="agent-body-error">malformed structure</p>';
         parts.push(
             '<p class="agent-body-subtitle">Body tree</p>' +
             '<p class="agent-body-note">Tick "hides with parent" on a part that cloth covers: while the part it hangs on wears a garment, the world does not name it. Save writes what you ticked.</p>' +
             tree
+        );
+        parts.push(
+            '<p class="agent-body-note">Organs (internal components) are listed per part that carries one: a world part takes the world recipe, a new part takes this design; a part with no organs is inert and shows nothing.</p>'
         );
         const recipes = Array.isArray(body.components) ? body.components : [];
         if (recipes.length > 0) {
@@ -432,23 +439,35 @@ export class AgentBodyPanel {
      * ever mean nothing, and a control that does nothing is a lie about the data.
      * @param {Object} node
      * @param {string} path '' for the root, else the steps from the root
+     * @param {Object<string, Array<string>>} [organsByComponent] - organs installed
+     *   per component name (the create response's display field); a node missing
+     *   from it is inert and shows nothing.
      * @returns {string}
      */
-    _treeHtml(node, path) {
+    _treeHtml(node, path, organsByComponent = {}) {
         if (!node || typeof node !== 'object' || Array.isArray(node)) {
             return '<span class="agent-body-error">malformed node</span>';
         }
         const slot = node.slot != null
             ? ' <em class="agent-body-slot">(' + this._esc(node.slot) + ')</em>'
             : '';
+        const organs =
+            (node.component && typeof node.component === 'string' &&
+                Object.hasOwn(organsByComponent, node.component))
+                ? organsByComponent[node.component]
+                : [];
+        const organsHtml = organs.length > 0
+            ? '<span class="agent-body-stat">organs: ' + organs.map((o) => this._esc(o)).join(', ') + '</span>'
+            : '';
         const children = Array.isArray(node.children) ? node.children : [];
         return (
             '<div class="agent-body-node">' +
-            '<span class="agent-body-component">' + this._esc(node.component) + '</span>' + slot +
+            '<span class="agent-body-component">' + this._esc(node.component) + '</span>' + slot + organsHtml +
             (path ? this._mountToggleHtml(path, node.hidesWithParent === true) : '') +
             (children.length > 0
                 ? '<ul class="agent-body-subtree">' +
-                  children.map((child, i) => this._treeHtml(child, path ? path + '.children.' + i : 'children.' + i)).join('') +
+                  children.map((child, i) =>
+                      this._treeHtml(child, path ? path + '.children.' + i : 'children.' + i, organsByComponent)).join('') +
                   '</ul>'
                 : '') +
             '</div>'

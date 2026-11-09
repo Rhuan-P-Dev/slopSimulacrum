@@ -20,8 +20,10 @@
  *         effective persona carries no {{user}} token; 422 CARD_NOT_READABLE when the card
  *         file exists but carries no usable character payload; 422 RELATIONSHIP_JUDGMENT_INVALID
  *         when the model's answer fails validation.
- * POST   /agent-body/create         -> { card, body, meta }
+ * POST   /agent-body/create         -> { card, body, meta, organsByComponent }
  *         body: { cardId: string (1..128 chars, no extension) }
+ *         response organsByComponent: per-part organs for display only (world parts take
+ *         the world recipe, new parts take the design recipe); `body` is exactly what Save posts.
  * POST   /agent-body/save           -> { saved, packageId, dir, version, content, created,
  *         backups, blueprintId, newComponents, newItems, outfitWritten, blueprintWritten,
  *         overlapsOfficial, applied: false, appliesVia, scanned }

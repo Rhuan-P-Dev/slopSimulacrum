@@ -426,6 +426,78 @@ describe('AgentBodyController', () => {
                 .toMatch(/never a node of "structure"/);
         });
 
+        it('reports the organs each body part carries: world parts and new parts', async () => {
+            const design = {
+                blueprintId: 'novaRunner',
+                rationale: 'a body mixing an inert part, organ-bearing world parts, and one new part with its own organ.',
+                structure: {
+                    component: 'm1CentralBody',
+                    slot: null,
+                    children: [
+                        { component: 'm1Toe', slot: null, children: [] },
+                        { component: 'parcelStrap', slot: 'hand', children: [] },
+                        { component: 'm1Leg', slot: null, children: [] },
+                        { component: 'm1Leg', slot: null, children: [] },
+                        { component: 'm1Head', slot: null, children: [] }
+                    ]
+                },
+                components: [
+                    {
+                        name: 'parcelStrap',
+                        form: { volume: 3, position: { x: 2, y: 1 } },
+                        materials: [{ material: 'iron', fraction: 1 }],
+                        internalComponents: ['thinkCore']
+                    }
+                ]
+            };
+            fakeLlm.chatFull.mockResolvedValue({ content: JSON.stringify(design), finishReason: 'stop' });
+            const result = await controller.designBody(NOVA_STEM);
+
+            const organs = result.organsByComponent;
+            expect(Object.isFrozen(organs), 'the map is display context: frozen').toBe(true);
+            expect(Object.isFrozen(organs.m1CentralBody), 'each value is frozen too').toBe(true);
+            expect(organs.m1CentralBody, 'world part: its world recipe organ').toEqual(['coalGenerator']);
+            expect(organs.m1Head, 'world part: its own organ').toEqual(['thinkCore']);
+            expect(organs.m1Leg, 'a part that appears twice is listed once').toEqual(['moveCore']);
+            expect(organs.parcelStrap, 'new part: the design recipe organ').toEqual(['thinkCore']);
+            expect('m1Toe' in organs, 'an inert part is absent, never an empty claim').toBe(false);
+            expect(Object.keys(organs), 'tree order, first encounter first')
+                .toEqual(['m1CentralBody', 'parcelStrap', 'm1Leg', 'm1Head']);
+        });
+
+        it('resolves a new-part organ given as { type, grants } objects to its type id', async () => {
+            const design = {
+                blueprintId: 'novaRunner',
+                rationale: 'a new part names its organ in the model-side object shape.',
+                structure: {
+                    component: 'm1CentralBody',
+                    slot: null,
+                    children: [
+                        { component: 'parcelStrap', slot: 'hand', children: [] },
+                        { component: 'm1Head', slot: null, children: [] }
+                    ]
+                },
+                components: [
+                    {
+                        name: 'parcelStrap',
+                        form: { volume: 3, position: { x: 2, y: 1 } },
+                        materials: [{ material: 'iron', fraction: 1 }],
+                        internalComponents: [{ type: 'thinkCore', grants: {} }]
+                    }
+                ]
+            };
+            fakeLlm.chatFull.mockResolvedValue({ content: JSON.stringify(design), finishReason: 'stop' });
+            const result = await controller.designBody(NOVA_STEM);
+
+            expect(result.body.components[0].internalComponents[0],
+                'the object form survives validation and normalization').toEqual({
+                type: 'thinkCore',
+                grants: {}
+            });
+            expect(result.organsByComponent.parcelStrap,
+                'the tree shows the type id, not the object').toEqual(['thinkCore']);
+        });
+
         it('keeps what a mount declared about itself, and says nothing for a mount that did not', async () => {
             const design = structuredClone(HAPPY_BODY);
             design.structure.children[1].hidesWithParent = true;

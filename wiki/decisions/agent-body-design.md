@@ -444,3 +444,36 @@ The fit is the world's, not a flat default: the world's install gate
 `form.volume`, so a 20-volume organ lands on a 20-volume host while a 30-volume one stays out
 of it (a fit regression test in this file pins both). The shape the design writes is the
 shape the world reads.
+## Amendment - the panel lists the organs of all parts, not just the new ones
+
+Date: 2026-11-09
+
+**What was missing.** The "Create Agent Body" panel showed a part's organs only in the
+"New components" section (the new recipes). The parts the body tree hangs on
+(`femaleCentralBody`, `m1Head`, `m1Leg` ...) showed nothing, even when their world
+recipe installs organs (`coalGenerator`, `thinkCore`, `moveCore`). The operator could
+not see what a part carried, and the panel showed a different picture than the prompt.
+
+**The decision.** `POST /agent-body/create` gains a read-only display field,
+`organsByComponent`, next to `card` / `body` / `meta` (never inside `body` - `body`
+is exactly what `POST /agent-body/save` posts, and the map is display context, not
+design data). For every part of the body tree (first encounter, tree order), the field
+maps the part's component name to the organs its *recipe* installs: world parts take
+the world's recipe (`this.components`), new parts take the design's own recipe
+(`internalComponents`). Parts with no organs are *absent* from the map - absence IS
+the "no organs" claim, never an empty claim. The panel prints the list as a stat on
+each tree node ("organs: a, b") and adds a note explaining it; the "New components"
+cards keep their own organs badge.
+
+**What this does not change.** The design shape (`body`) and the save contract (still
+`body` alone, still a new `body-<slug>` package, never `core-*`, never applied -
+`appliesVia: "POST /mods/apply"`); organs are still installed at spawn by
+`InternalComponentController`; and the world data itself is untouched - the server
+reads the world recipe and the design recipe from the same registries the prompt reads,
+so the panel stays consistent with the prompt's organ vocabulary.
+
+**Verified.** `npm run check`. Unit (`test/unit/AgentBodyController.test.js`): the create
+response's `organsByComponent` maps world parts to their world recipe organs
+(`m1CentralBody -> coalGenerator`, `m1Head -> thinkCore`), new parts to design recipe
+organs (`parcelStrap -> thinkCore`), a part repeated in the tree once, inert parts
+absent (not an empty claim), frozen values, and tree key order.
