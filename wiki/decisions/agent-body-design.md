@@ -444,6 +444,24 @@ The fit is the world's, not a flat default: the world's install gate
 `form.volume`, so a 20-volume organ lands on a 20-volume host while a 30-volume one stays out
 of it (a fit regression test in this file pins both). The shape the design writes is the
 shape the world reads.
+
+## Amendment — the prompt states what the validator enforces (prompt v1.6.0)
+
+Date: 2026-11-09
+
+**What bit.** A saved design was rejected with two rule messages the prompt never stated: the organ a recipe named (`suppleSubjectCore`) was neither in the shipped `AVAILABLE ORGANS` list nor in the design's own top-level `internalComponents` ("is not an available organ and not proposed in `internalComponents`") and a display name ran over the 64-char limit ("must be at most 64 characters"). Rule 2 already said a recipe organ must be available or proposed, and the validator enforced both limits; the model still met the law — the constraints lived in the validation, not at the decision point, where a long prompt leaves every sentence competing for attention.
+
+**The decision.** Prompt v1.6.0 states both laws where the model decides:
+
+- The organ and garment `displayName` schema lines now read "optional; at most N characters", taken from the same constants the validator uses, so the bound is said before it bites.
+- The component-recipe `internalComponents` schema line now demands an EXACT name and names the consequence ("a design error"), instead of only describing the allowed set.
+- A new `FINAL CHECKLIST` section between `EXAMPLE BLUEPRINTS` and `OUTPUT FORMAT` (the last thing the model reads before answering) restates: the organ-reference law (every recipe organ string must match, character for character, a shipped organ or a name the same design proposes in the top-level `internalComponents` — "there is no third source of organ names"); component names in `structure`; outfit item/component resolution; display-name length; and the closed bounds (nodes, organs, garments, outfit entries, fractions, grants, flags). It also names the consequence the operator sees (the design is rejected as `BODY_DESIGN_INVALID` and the card must be designed again).
+- `PROMPT_VERSION` bumped to 1.6.0 so the prompt header and the `meta` of every design call attribute post-bump behavior to this text (RP-2: the prompt is versioned and the version is visible to the model).
+
+**What this does not change.** The 422 `BODY_DESIGN_INVALID` contract of `POST /agent-body/create`, its per-rule error list, and the validator itself: the validator remains the single source of truth; the prompt only says the same law in the model's language, at the moment it chooses an answer. No retry mechanism was added — a model output that still fails stays a 422 with the full rule list.
+
+**Verified.** `npm run check`. Unit (`test/unit/AgentBodyController.test.js`): the prompt states the display-name character limit, carries the checklist, restates the organ-reference law and the same-design definition requirement, names the rejection the operator sees, and places the checklist after the example blueprints and before `OUTPUT FORMAT`.
+
 ## Amendment - the panel lists the organs of all parts, not just the new ones
 
 Date: 2026-11-09

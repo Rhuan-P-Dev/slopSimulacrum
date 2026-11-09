@@ -99,8 +99,20 @@ const PROMPT_KIND = 'agent-body-design';
  * that declare them, at spawn. Per-turn effects remain the world's: a designer
  * organ grants and marks, and that is all (amendment in
  * wiki/decisions/agent-body-design.md).
+ *
+ * v1.6.0 — the rules the validator enforces were never said to the model at the
+ * decision point: one saved design came back rejected for a hallucinated organ
+ * ("suppleSubjectCore" — neither shipped nor proposed) and a display name over
+ * the limit. The prompt now states both laws where the model decides: the organ
+ * and garment `displayName` lines carry the character limits (from the same
+ * constants the validator uses), and a `FINAL CHECKLIST` between
+ * `EXAMPLE BLUEPRINTS` and `OUTPUT FORMAT` restates the organ-reference law
+ * (a recipe organ must match, character for character, a shipped organ or a
+ * name the same design proposes) plus the other resolution rules. The 422
+ * `BODY_DESIGN_INVALID` contract of `POST /agent-body/create` is unchanged.
+ * (Amendment in wiki/decisions/agent-body-design.md.)
  */
-const PROMPT_VERSION = '1.5.0';
+const PROMPT_VERSION = '1.6.0';
 const SLUG_PATTERN = /^[A-Za-z][A-Za-z0-9]{0,31}$/;
 /**
  * The identifier `entityController.expandBlueprint` itself gives a mount that
@@ -947,19 +959,19 @@ class AgentBodyController {
             '  { "name": "<unique id, letters and digits only>",\n' +
             '    "form": { "volume": <positive integer 1..40>, "position": { "x": <integer>, "y": <integer> } },\n' +
             '    "materials": [ { "material": "<one of the AVAILABLE MATERIALS>", "fraction": <number> } ],\n' +
-            '    "internalComponents": [ "<one of the AVAILABLE ORGANS, or a NEW organ you propose in the top-level "internalComponents" field below>" ] or omitted,\n' +
+            '    "internalComponents": [ "<an EXACT name: one of the AVAILABLE ORGANS, or a NEW organ you PROPOSE in the top-level "internalComponents" array below — an undeclared or near-matching name rejects the design>" ] or omitted,\n' +
             '    "energyCapacity": <integer >= 0> or omitted }\n' +
             '  Material fractions within each new recipe must sum to exactly 1.0.\n' +
             '- "internalComponents": the NEW organs you invent for this character (the designer\'s own ICs) - a top-level array of organ definitions. An organ is what makes a component functional: a STATIC claim, not a machine. It grants stats and/or marks flags, and it does nothing between turns (no fuel, no repair, no item making, no per-turn effect - that half belongs to the world\'s organs and is not authorable here). An organ that grants no stat and marks no flag is inert, like a component without an organ, so give each one at least a grant or a flag. Each new organ:\n' +
             '  { "name": "<new id, letters and digits only, 1..31; NOT one the world already has>",\n' +
-            '    "displayName": "<what the world calls it in a sentence; optional>",\n' +
+            '    "displayName": "<what the world calls it in a sentence; optional; at most ' + MAX_IC_LABEL_CHARS + ' characters">,\n' +
             '    "grants": { "<stat key>": <number> },       // from ONLY: Physical.strength, Movement.move, Manipulation.fine_controls, Mind.think_level\n' +
             '    "grantsFlags": ["<flag>"],                 // from ONLY: flammable, conductive, corrosive, sensitive\n' +
             '    "volume": <positive integer 1..40> }\n' +
             '  "grants" and "grantsFlags" are both optional, but at least one must be non-empty. At most ' + MAX_IC_RECIPES + ' new organs. A component uses a proposed organ exactly as it uses a world organ: by naming it in its own "internalComponents" - so every component that needs function names the organ that gives it.\n' +
             '- "garments": NEW wearable ITEMS you invent for this character - a cloak, a hood, a harness, a wrapped bandage, a ceremonial sash. A garment is a thing the character CARRIES and WEARS: it is never a node of "structure" and never a component. Each new garment:\n' +
             '  { "name": "<unique id, letters and digits only>",\n' +
-            '    "displayName": "<what the world calls it in a sentence, e.g. Rune-Stitched Cloak; optional>",\n' +
+            '    "displayName": "<what the world calls it in a sentence, e.g. Rune-Stitched Cloak; optional; at most ' + MAX_GARMENT_LABEL_CHARS + ' characters">,\n' +
             '    "form": { "volume": <positive integer 1..40> },\n' +
             '    "materials": [ { "material": "<one of the AVAILABLE MATERIALS>", "fraction": <number> } ],\n' +
             '    "wear": { "minVolume": <integer 1..volume> },\n' +
@@ -986,6 +998,12 @@ class AgentBodyController {
             'EXISTING BLUEPRINT IDS (for reference — existing droid types in the world): ' + blueprintIds + '\n\n' +
             'EXAMPLE BLUEPRINTS (how bodies compose in this world; ["component", "slot"] is a component with a slot):\n' +
             exampleLines + '\n\n' +
+            'FINAL CHECKLIST (run it after every value is written, before the JSON leaves you; one missed line is a design the server rejects as BODY_DESIGN_INVALID and the card must be designed again):\n' +
+            '- ORGAN REFERENCES (most often violated): every string in every "internalComponents" array of your "components" must match, character for character, either a name in the "AVAILABLE ORGANS" list above or a name you define in your top-level "internalComponents". A name in NEITHER is an invented organ and rejects the design. If a recipe names an organ not in "AVAILABLE ORGANS", you MUST also define it in the top-level "internalComponents" in the SAME design — there is no third source of organ names.\n' +
+            '- COMPONENT NAMES: every "component" in "structure" must match an "AVAILABLE COMPONENTS" name or a recipe name you defined in "components".\n' +
+            '- DISPLAY NAMES: a new organ\'s "displayName" is at most ' + MAX_IC_LABEL_CHARS + ' characters; a garment\'s is at most ' + MAX_GARMENT_LABEL_CHARS + ' characters. If a phrase is longer, shorten it before answering.\n' +
+            '- OUTFIT: every "item" is a garment you proposed in "garments" or a key from "WEARABLE ITEMS"; every "component" is a node of your "structure".\n' +
+            '- BOUNDS: at most ' + MAX_BODY_NODES + ' structure nodes, at most ' + MAX_IC_RECIPES + ' new organs, at most ' + MAX_GARMENTS + ' garments and at most ' + MAX_OUTFIT_ENTRIES + ' outfit entries; material fractions sum to 1.0; organ grants from the four function stats only; organ flags from the four flags only; each new organ grants or marks.\n\n' +
             'OUTPUT FORMAT: exactly one JSON object. No markdown, no code fences, no explanation outside the JSON.'
         );
     }

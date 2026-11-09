@@ -426,6 +426,28 @@ describe('AgentBodyController', () => {
                 .toMatch(/never a node of "structure"/);
         });
 
+        it('states the display-name limits and the pre-answer name checklist', async () => {
+            fakeLlm.chatFull.mockResolvedValue({ content: JSON.stringify(HAPPY_BODY), finishReason: 'stop' });
+            await controller.designBody(NOVA_STEM);
+
+            const system = fakeLlm.chatFull.mock.calls.at(-1)[0][0].content;
+            expect(system, 'the display-name limit is said, not only enforced')
+                .toMatch(/at most 64 characters/);
+            expect(system, 'a checklist pins the model to the rules just before output format')
+                .toContain('FINAL CHECKLIST');
+            expect(system, 'a recipe organ must match a shipped organ or a same-design proposal')
+                .toContain('every string in every "internalComponents"');
+            expect(system, 'an unproposed organ needs a same-design definition')
+                .toContain('MUST also define it in the top-level "internalComponents" in the SAME design');
+            expect(system, 'the checklist names the rejection the card would get')
+                .toContain('rejects as BODY_DESIGN_INVALID');
+            const checklistIdx = system.indexOf('FINAL CHECKLIST');
+            const formatIdx = system.indexOf('OUTPUT FORMAT:');
+            expect(checklistIdx, 'the checklist exists').toBeGreaterThan(-1);
+            expect(formatIdx, 'the checklist reads after the examples and before the output-format line')
+                .toBeGreaterThan(checklistIdx);
+        });
+
         it('reports the organs each body part carries: world parts and new parts', async () => {
             const design = {
                 blueprintId: 'novaRunner',
