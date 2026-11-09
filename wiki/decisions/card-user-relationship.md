@@ -110,8 +110,11 @@ route, never triggered by a load or a refresh.
   it, and the sampling is the provider's own — no `temperature` is sent);
   the provider timeout stays the LLM seam's single knob (CR A-5).
 - The judgment is a property of the card file on disk, not of a world spawn:
-  the world does not consume it. It is a dev/display aid for the operator —
-  the actual `{{user}}` binding stays the `card-user-mapping` one.
+  the sidecar itself is never read by the world. The one world-side
+  consumer is the attachment of `card-user-relationship-context.md` (at
+  world create, the judged relationship of a bound source is attached to the
+  bound-to target's system prompt) — the actual `{{user}}` binding stays the
+  `card-user-mapping` one.
 - Replacing a card file makes its verdict vanish from the gallery (hash
   mismatch) and the sidecar is deleted at the next judgment; the operator
   never has to clean up by hand.

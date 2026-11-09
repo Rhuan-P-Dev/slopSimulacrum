@@ -19,6 +19,11 @@
  * (wiki/decisions/card-user-mapping.md,
  * wiki/decisions/card-user-relationship.md).
  *
+ * When a judgment completes, THE TAB THAT ASKED IS NOTIFIED (owner decision:
+ * no broadcast, no socket event - the other tabs simply re-read on open, the
+ * way they already do): the row is updated in place, the status line carries
+ * the verdict (green), and the row flashes once (`cards-row--judged`).
+ *
  * The art is fetched per card from `GET /agent-body/cards/:cardId/image` by
  * the `<img>` itself (one request per photo). That route matches the card
  * against the on-disk listing and serves the bytes through the data seam, so
@@ -138,6 +143,23 @@ export function renderCardGrid(cards = [], relationships = {}) {
         + '<h3 class="cards-h">Cards (' + list.length + ')</h3>'
         + '<div class="cards-stack">' + rows.join('') + '</div>'
         + '</div>';
+}
+
+/**
+ * The status-line notice a completed judgment writes in the tab that asked
+ * for it: the card's name, the verdict's label in quotes, and the fact that
+ * the judgment is saved (the sidecar persists server-side, so a reload shows
+ * it again). The card's own text is escaped by the caller's existing escape
+ * on the way into the DOM (`_setStatus` writes textContent, so the string
+ * here is plain data - no HTML).
+ * @param {string} name - the card display name the server reported
+ * @param {string} label - the verdict's label (free-form, model output)
+ * @returns {string}
+ */
+export function judgedNoticeMessage(name, label) {
+    const n = typeof name === 'string' && name.trim() !== '' ? name.trim() : 'the card';
+    const l = typeof label === 'string' && label.trim() !== '' ? label.trim() : 'its {{user}} relationship';
+    return `${n}'s {{user}} relationship was judged: "${l}".`;
 }
 
 export class CardsPanel {
@@ -272,7 +294,12 @@ export class CardsPanel {
             };
             this._updateRelationshipZone(cardId);
             const name = payload?.card?.name || cardId;
-            this._setStatus(`Judged ${name} - ${this._relationships[cardId].label || 'relationship'}.`, 'dim');
+            // The notice in the tab that asked (no broadcast - owner decision,
+            // see the module header): the green status line says the verdict
+            // out loud, and the row flashes once so it is seen without a
+            // re-read of the whole gallery.
+            this._setStatus(judgedNoticeMessage(name, this._relationships[cardId].label || ''), 'ok');
+            this._flashJudgedRow(cardId);
         } catch (error) {
             ClientLogger.error('CardsPanel', 'relationship judgment threw', error);
             btn.disabled = false;
@@ -280,6 +307,20 @@ export class CardsPanel {
         } finally {
             this._judging.delete(cardId);
         }
+    }
+
+    /**
+     * @private Highlight the judged card's row once: the CSS animation runs
+     * to the end and removes the class itself (the `animationend` listener is
+     * one-shot), so nothing lingers and no timer has to be torn down (A-3).
+     * @param {string} cardId
+     */
+    _flashJudgedRow(cardId) {
+        const row = Array.from(this._content.querySelectorAll('.cards-row'))
+            .find((r) => r.dataset.row === cardId);
+        if (!row) return;
+        row.classList.add('cards-row--judged');
+        row.addEventListener('animationend', () => row.classList.remove('cards-row--judged'), { once: true });
     }
 
     /** @private */

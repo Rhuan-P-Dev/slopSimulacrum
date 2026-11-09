@@ -289,6 +289,17 @@
 .cards-row:last-child { border-bottom: none; }
 .cards-row:hover { background: #121212; }
 
+/* The judgment notice: the row of the card whose {{user}} relationship was
+ * just judged flashes its background once and settles back to transparent
+ * (CardsPanel._flashJudgedRow adds the class, the one-shot animationend
+ * listener removes it). Only the tab that asked sees it - there is no
+ * broadcast, and the other tabs re-read on open like they always have. */
+.cards-row--judged { animation: cards-judged-flash 1.4s ease-out; }
+@keyframes cards-judged-flash {
+    0% { background-color: color-mix(in srgb, var(--neon-green, #00ff00) 25%, transparent); }
+    100% { background-color: transparent; }
+}
+
 .cards-photo {
     width: 384px;
     height: 384px;

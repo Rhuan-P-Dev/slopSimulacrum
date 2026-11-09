@@ -153,4 +153,79 @@ describe('LLMAgentController._buildSystemPrompt - the card {{user}} substitution
         expect(system).toContain('Personality: You report to Alice.');
         expect(system).not.toContain('rin-alice');
     });
+
+    // =========================================================================
+    // The judged relationship of the bound source (card-user-relationship-context):
+    // this droid IS the card its users' `{{user}}` was rewritten to, so its
+    // system prompt lists which droids regard it as their user, and how.
+    // =========================================================================
+    describe('the judged user relationships attached at world create', () => {
+        function makeRelationshipEntity(rels) {
+            const entity = makeCardEntity('Rin', 'You are the one the droids serve.', undefined);
+            entity.npcConfig.userRelationships = rels;
+            return entity;
+        }
+
+        it('renders the verdict in the target\'s prompt, with {{user}} resolved to the target\'s own name', async () => {
+            const entity = makeRelationshipEntity([{
+                cardId: 'nova',
+                name: 'Nova',
+                label: 'devoted partner',
+                summary: 'Nova adores {{user}} and protects {{user}}.'
+            }]);
+            const { agent, calls } = makeAgent(makeWorld(entity));
+
+            await agent.runRound(entity.id, 0);
+
+            const system = calls[0].options.system;
+            expect(system).toContain('Other droids whose user is you (their cards were bound to name you as the user they serve):');
+            expect(system).toContain('    - Nova regards you as "devoted partner": Nova adores Rin and protects Rin.');
+            expect(system).not.toContain('{{user}}');
+            // the section sits after the persona line, before the world rules
+            const iPersona = system.indexOf('Personality:');
+            const iSection = system.indexOf('Other droids whose user is you');
+            const iRules = system.indexOf('World rules:');
+            expect(iPersona).toBeGreaterThan(-1);
+            expect(iSection).toBeGreaterThan(iPersona);
+            expect(iRules).toBeGreaterThan(iSection);
+        });
+
+        it('renders a label and summary without the token verbatim', async () => {
+            const entity = makeRelationshipEntity([{ cardId: 'yui', name: 'Yui', label: 'rival', summary: 'Yui wants what you have.' }]);
+            const { agent, calls } = makeAgent(makeWorld(entity));
+
+            await agent.runRound(entity.id, 0);
+
+            expect(calls[0].options.system).toContain('    - Yui regards you as "rival": Yui wants what you have.');
+        });
+
+        it('filters malformed entries; a well-formed one still renders', async () => {
+            const entity = makeRelationshipEntity([
+                null,
+                {},
+                'junk',
+                { name: '', label: 'l', summary: 's' },
+                { name: 'A', label: '', summary: 's' },
+                { name: 'A', label: 'l', summary: '   ' },
+                { cardId: 'a', name: 'Alpha', label: 'ally', summary: 'Alpha helps you.' }
+            ]);
+            const { agent, calls } = makeAgent(makeWorld(entity));
+
+            await agent.runRound(entity.id, 0);
+
+            const system = calls[0].options.system;
+            expect(system).toContain('    - Alpha regards you as "ally": Alpha helps you.');
+            expect(system).not.toContain('junk');
+            expect(system.split('    - ').length - 1).toBe(1); // exactly one rendered line
+        });
+
+        it('without userRelationships the section is absent (byte-identical to before)', async () => {
+            const entity = makeCardEntity('Rin', 'You are the one the droids serve.', undefined);
+            const { agent, calls } = makeAgent(makeWorld(entity));
+
+            await agent.runRound(entity.id, 0);
+
+            expect(calls[0].options.system).not.toContain('Other droids whose user is you');
+        });
+    });
 });

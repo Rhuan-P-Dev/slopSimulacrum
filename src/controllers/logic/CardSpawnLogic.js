@@ -26,6 +26,15 @@
  * direct calls keep working. Narrow-deps rule (mirrors
  * consequences/DropItemHandler.js): `facade` is the WorldStateController
  * instance and each function only uses the members named in its JSDoc.
+ *
+ * On top of spawning, `spawnCards` also carries the card user mapping's
+ * JUDGED-relationship attachment (wiki/decisions/card-user-relationship-context.md):
+ * `attachBoundUserRelationships` reads each bound source's sidecar (freshness
+ * through the data seam, `CardRelationshipStore.readFreshCardUserRelationship`
+ * — the same persona-hash rule the judgment command applies) and writes the
+ * verdict into the target's npcConfig, where the agent's system prompt renders
+ * it (`LLMAgentController._buildSystemPrompt`). It is a per-spawn fact, like
+ * the binding itself: the sidecar stays the single source of truth on disk.
  */
 
 import fs from 'node:fs';
@@ -33,8 +42,16 @@ import path from 'node:path';
 import Logger from '../../utils/Logger.js';
 import { readCharaCard } from '../../utils/PngCharaReader.js';
 import { CARD_IMAGE_EXTS } from '../../utils/CardImageTypes.js';
+import { readFreshCardUserRelationship } from '../../utils/CardRelationshipStore.js';
 
 const CARD_BLUEPRINT = 'm1Droid';
+
+/**
+ * The card directory (the source of truth for which cards exist). Resolved
+ * once at module load — the repository root is the process cwd (AGENTS.md
+ * stack: no bundler, `node src/server.js`), so the relative resolve is stable.
+ */
+const CARD_DIR = path.resolve('data/cards');
 
 /**
  * Default profile applied to every card when the embedded payload is missing
@@ -101,6 +118,15 @@ const CARD_DEFAULT_PROFILE = {
  * (source card id -> `{ cardId, name }` of the bound target) so the caller can
  * confirm what was applied; when none land the key is absent, keeping the
  * report shape byte-identical to before for an unbound world.
+ *
+ * On top of the binding, the judged `{{user}}` relationship of every bound
+ * SOURCE card that also spawned is attached to the TARGET card's per-entity
+ * npcConfig (`userRelationships`, see `attachBoundUserRelationships` and
+ * wiki/decisions/card-user-relationship-context.md): the target's agent is the
+ * card the source's `{{user}}` was rewritten to, so it is the one that should
+ * know which droids treat it as their user, and how they regard it. Only
+ * FRESH sidecars attach (the same persona-hash rule the judgment applies);
+ * a card never judged, judged stale, or missing simply attaches nothing.
  * @private
  * @param {{ only?: string[], users?: Object<string, string> }} [options] -
  *   `only`: card ids to spawn (absent -> every card file). `users`: the
@@ -128,6 +154,9 @@ function spawnCards(facade, options = {}) {
             entities.push({ cardId: cardFile.cardId, entityId });
             if (user) appliedUsers[cardFile.cardId] = { cardId: user.cardId, name: user.name };
         }
+    }
+    if (userByName) {
+        attachBoundUserRelationships(facade, all, userByName, entities);
     }
     Logger.info(`[WorldStateController] ${entities.length}/${cardFiles.length} card NPC(s) spawned from data/cards/ (generic blueprint ${CARD_BLUEPRINT} - or a card's own saved body when one exists).`);
     const report = { total: cardFiles.length, spawned: entities.length, entities };
@@ -180,6 +209,74 @@ function resolveUserNames(_facade, all, users) {
 }
 
 /**
+ * Attaches the judged `{{user}}` relationship of every bound source card to
+ * the spawned target card it was bound to
+ * (wiki/decisions/card-user-relationship-context.md).
+ *
+ * Run once, after the spawn loop, only when a user mapping was given. For
+ * each binding whose source AND target both spawned: the source's sidecar is
+ * read through the data seam and accepted only when it is FRESH (current
+ * version, persona hash still matching the source card on disk, well-formed
+ * relationship — the exact rule the judgment command applies to its own
+ * records, shared from `CardRelationshipStore`). The verdict — the source's
+ * display name plus the label and summary the LLM judged — is written into
+ * the TARGET's per-entity npcConfig as `userRelationships` (an array, because
+ * several sources may bind to one target), and the agent's system prompt
+ * renders it (`LLMAgentController._buildSystemPrompt`).
+ *
+ * The read of the source's PNG is at most one extra per bound source, and
+ * this runs only at world creation (never per round), so it stays off the
+ * hot path (`CR PERF-4`). Every degradation is silent-and-skip, matching the
+ * spawn's own: an unreadable source payload, a stale or missing sidecar, or a
+ * facade without a stateEntityController (a light test double) simply
+ * attaches nothing — one bad card never derails the population, and a world
+ * without judgments is byte-identical to before this feature (CHG-8).
+ * @private
+ * @param {WorldStateController} facade
+ * @param {Array<{fullPath: string, cardId: string}>} all - the full card listing.
+ * @param {Map<string, {cardId: string, name: string}>} userByName - source -> target (from `resolveUserNames`).
+ * @param {Array<{cardId: string, entityId: string}>} entities - the spawned cards.
+ * @returns {void}
+ */
+function attachBoundUserRelationships(facade, all, userByName, entities) {
+    if (userByName.size === 0) return;
+    const stateEntities = facade.stateEntityController;
+    if (!stateEntities || typeof stateEntities.getEntity !== 'function') {
+        return; // a light double that does not hold entities: nothing to attach to
+    }
+    const fullPathById = new Map(all.map((file) => [file.cardId, file.fullPath]));
+    const spawned = new Map(entities.map((entry) => [entry.cardId, entry]));
+    const byTarget = new Map(); // target card id -> attached relationships (in binding order)
+    for (const [sourceId, target] of userByName) {
+        const source = spawned.get(sourceId);
+        const targetEntry = spawned.get(target.cardId);
+        if (!source || !targetEntry) continue; // only both-present pairs carry a fact
+        const fullPath = fullPathById.get(sourceId);
+        if (!fullPath) continue;
+        const payload = readCharaCard(fullPath);
+        const card = payload.success ? payload.card : null;
+        const rel = readFreshCardUserRelationship(CARD_DIR, sourceId, card);
+        if (!rel) continue; // never judged, stale, or malformed: no attachment
+        const sourceEntity = stateEntities.getEntity(source.entityId);
+        const name = (sourceEntity && typeof sourceEntity.name === 'string' && sourceEntity.name.trim() !== '')
+            ? sourceEntity.name.trim()
+            : sourceId;
+        const list = byTarget.get(target.cardId) || [];
+        list.push({ cardId: sourceId, name, label: rel.label, summary: rel.summary });
+        byTarget.set(target.cardId, list);
+    }
+    for (const [targetCardId, list] of byTarget) {
+        const entry = spawned.get(targetCardId);
+        const entity = stateEntities.getEntity(entry.entityId);
+        if (!entity || !entity.npcConfig) continue;
+        entity.npcConfig = { ...entity.npcConfig, userRelationships: list };
+        Logger.info(
+            `[WorldStateController] card "${targetCardId}" carries the judged {{user}} relationship of ${list.map((r) => `"${r.name}"`).join(', ')} (bound to it at world create).`
+        );
+    }
+}
+
+/**
  * Lists the image files that are candidate cards, keyed by a stable stem
  * (filename minus extension) used for logging and as the display-name
  * fallback when a payload is missing.
@@ -187,7 +284,7 @@ function resolveUserNames(_facade, all, users) {
  * @returns {Array<{fullPath: string, cardId: string}>}
  */
 function readCardFiles(_facade) {
-    const dir = path.resolve('data/cards');
+    const dir = CARD_DIR;
     let names;
     try {
         names = fs.readdirSync(dir);

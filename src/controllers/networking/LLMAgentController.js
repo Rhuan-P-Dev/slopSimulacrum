@@ -1247,6 +1247,25 @@ class LLMAgentController {
             personality = personality.split('{{user}}').join(config.userName.trim());
         }
         const objective = typeof config.objective === 'string' ? config.objective.trim() : '';
+        // The bound cards' judged relationships (wiki/decisions/card-user-relationship-context.md):
+        // at world create, each card whose `{{user}}` was bound to THIS one had its
+        // judged relationship with the placeholder attached to this npcConfig
+        // (CardSpawnLogic.attachBoundUserRelationships). This droid IS the card the
+        // placeholder was rewritten to, so this is where it learns which droids
+        // treat it as their user and how they regard it. A missing or malformed
+        // entry is dropped, never fatal; the `{{user}}` a model-written label or
+        // summary still carries resolves to this droid's own name — the same
+        // substitution the persona line above gets, so the sentence reads in the
+        // name the source addresses (never a card id, never a literal token).
+        const relationshipLines = (Array.isArray(config.userRelationships) ? config.userRelationships : [])
+            .filter((r) => r && typeof r === 'object'
+                && typeof r.name === 'string' && r.name.trim() !== ''
+                && typeof r.label === 'string' && r.label.trim() !== ''
+                && typeof r.summary === 'string' && r.summary.trim() !== '')
+            .map((r) => {
+                const asSelf = (text) => String(text).split('{{user}}').join(displayName);
+                return `    - ${r.name.trim()} regards you as "${asSelf(r.label)}": ${asSelf(r.summary)}`;
+            });
         const maxActions = this._asPositiveInt(config.maxWorldActionsPerRound, DEFAULT_MAX_WORLD_ACTIONS_PER_ROUND);
         const rawMaxChatPrompt = config.maxChatMessagesPerRound;
         const maxChat = (rawMaxChatPrompt === 0) ? 0 : this._asPositiveInt(rawMaxChatPrompt, DEFAULT_MAX_CHAT_MESSAGES_PER_ROUND);
@@ -1275,6 +1294,13 @@ class LLMAgentController {
             `You are ${displayName}, an NPC droid in the room "${roomName}".`,
             `Personality: ${personality}`,
             ...(objective ? [`Objective: ${objective}`] : []),
+            ...(relationshipLines.length > 0
+                ? [
+                    'Other droids whose user is you (their cards were bound to name you as the user they serve):',
+                    ...relationshipLines,
+                    ''
+                ]
+                : []),
             '',
             'World rules:',
             '- You are the only actor: you never choose another entity\'s ID as the acting entity.',

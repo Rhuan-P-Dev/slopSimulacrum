@@ -22,7 +22,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { renderCardGrid, cardImageSrc, cardHasUserPlaceholder, renderRelationshipZone } from '../../public/js/CardsPanel.js';
+import { renderCardGrid, cardImageSrc, cardHasUserPlaceholder, renderRelationshipZone, judgedNoticeMessage } from '../../public/js/CardsPanel.js';
 
 /** A card row in the shape `GET /agent-body/cards` returns. */
 const card = (cardId, extra = {}) => ({
@@ -139,5 +139,21 @@ describe('renderRelationshipZone', () => {
         expect(html).not.toContain('cards-rel-zone--locked');
         expect(html).toContain('Judge {{user}} relationship');
         expect(html).not.toContain('disabled');
+    });
+});
+
+describe('judgedNoticeMessage', () => {
+    it('says whose relationship was judged and the verdict (the notice of the tab that asked)', () => {
+        expect(judgedNoticeMessage('Nova', 'devoted partner'))
+            .toBe('Nova\'s {{user}} relationship was judged: "devoted partner".');
+    });
+
+    it('degrades gracefully on empty parts (no card name, no label)', () => {
+        expect(judgedNoticeMessage('', ''))
+            .toBe('the card\'s {{user}} relationship was judged: "its {{user}} relationship".');
+    });
+
+    it('trims the parts', () => {
+        expect(judgedNoticeMessage('  Nova  ', '  rival  ')).toBe('Nova\'s {{user}} relationship was judged: "rival".');
     });
 });

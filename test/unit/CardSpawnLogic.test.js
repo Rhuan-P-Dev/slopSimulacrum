@@ -8,8 +8,9 @@
  * @module test/unit/CardSpawnLogic
  */
 
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { readCharaCard } from '../../src/utils/PngCharaReader.js';
+import { readFreshCardUserRelationship } from '../../src/utils/CardRelationshipStore.js';
 import { blueprintForCard, spawnSingleCard, spawnCards } from '../../src/controllers/logic/CardSpawnLogic.js';
 
 // The stub applies to every importer of the reader (including CardSpawnLogic),
@@ -19,6 +20,17 @@ vi.mock(
     () => ({
         readCharaCard: vi.fn()
     })
+);
+
+// The seam's freshness read is the one outside this file's scope: it returns
+// "no fresh judgment" by default (the normal state), so every pre-existing
+// test in this file runs with the attachment feature byte-identically off.
+vi.mock(
+    '../../src/utils/CardRelationshipStore.js',
+    async (importOriginal) => {
+        const actual = await importOriginal();
+        return { ...actual, readFreshCardUserRelationship: vi.fn(() => null) };
+    }
 );
 
 /**
@@ -285,6 +297,138 @@ describe('CardSpawnLogic', () => {
             const readsOfC = readCharaCard.mock.calls.filter(([p]) => String(p).endsWith('c.png')).length;
             expect(readsOfC).toBe(1);
             expect(report.users).toEqual({ a: { cardId: 'c', name: 'Name-c' }, b: { cardId: 'c', name: 'Name-c' } });
+        });
+    });
+
+    // =========================================================================
+    // The judged {{user}} relationship of a bound source attaches to the
+    // target card at world create (wiki/decisions/card-user-relationship-context.md).
+    // =========================================================================
+    describe('spawnCards with the judged relationship of the bound source', () => {
+        beforeEach(() => {
+            readFreshCardUserRelationship.mockReset();
+            readFreshCardUserRelationship.mockReturnValue(null);
+            readCharaCard.mockImplementation((fullPath) => {
+                const id = String(fullPath).split('/').pop().replace(/\.png$/, '');
+                return { success: true, card: { name: `Name-${id}`, personality: 'p', description: 'd' } };
+            });
+        });
+
+        afterEach(() => {
+            readFreshCardUserRelationship.mockReset();
+        });
+
+        /** A facade that holds the spawned entities in a mutable npcConfig map. */
+        function relationshipFacade(cardIds) {
+            const entities = {};
+            for (const cardId of cardIds) {
+                entities[`entity-${cardId}`] = { id: `entity-${cardId}`, name: `Name-${cardId}`, npcConfig: {} };
+            }
+            return {
+                _readCardFiles: () => cardIds.map((cardId) => ({ cardId, fullPath: `data/cards/${cardId}.png` })),
+                _spawnSingleCard: (cardFile) => `entity-${cardFile.cardId}`,
+                stateEntityController: { getEntity: (id) => entities[id] || null },
+                _entities: entities
+            };
+        }
+
+        it('the fresh verdict of the bound source is attached to the target\'s npcConfig (the target is the card the source\'s {{user}} became)', () => {
+            readFreshCardUserRelationship.mockReturnValue({
+                cardId: 'nova',
+                name: 'Nova (card payload name)',
+                label: 'devoted partner',
+                summary: 'Nova adores you.',
+                judgedAt: '2026-07-20T12:00:00.000Z'
+            });
+            const facade = relationshipFacade(['nova', 'rin']);
+
+            const report = spawnCards(facade, { users: { nova: 'rin' } });
+
+            // the TARGET ("rin") carries the source's verdict; the name is the
+            // source's WORLD name (the spawned entity's), not the card payload's
+            expect(facade._entities['entity-rin'].npcConfig.userRelationships).toEqual([
+                { cardId: 'nova', name: 'Name-nova', label: 'devoted partner', summary: 'Nova adores you.' }
+            ]);
+            // the source itself carries no relationship fact (it has the binding,
+            // not the relationship)
+            expect(facade._entities['entity-nova'].npcConfig.userRelationships).toBeUndefined();
+            // the report keeps the users shape this feature was built on
+            expect(report.users).toEqual({ nova: { cardId: 'rin', name: 'Name-rin' } });
+            // one freshness read per bound source, with that source's payload
+            expect(readFreshCardUserRelationship).toHaveBeenCalledTimes(1);
+            expect(readFreshCardUserRelationship).toHaveBeenCalledWith(
+                expect.anything(),
+                'nova',
+                { name: 'Name-nova', personality: 'p', description: 'd' }
+            );
+        });
+
+        it('a never-judged (or stale) source attaches nothing: the target stays byte-identical to before', () => {
+            const facade = relationshipFacade(['nova', 'rin']);
+
+            spawnCards(facade, { users: { nova: 'rin' } });
+
+            expect('userRelationships' in facade._entities['entity-rin'].npcConfig).toBe(false);
+            expect(readFreshCardUserRelationship).toHaveBeenCalledTimes(1); // it was read, and rejected
+        });
+
+        it('two bound sources to one target: both verdicts attach, in binding order', () => {
+            readFreshCardUserRelationship.mockImplementation((_dir, id) => (id === 'nova'
+                ? { cardId: 'nova', name: 'N', label: 'devoted partner', summary: 'a.' }
+                : { cardId: 'yui', name: 'Y', label: 'rival', summary: 'b.' }));
+            const facade = relationshipFacade(['nova', 'yui', 'rin']);
+
+            spawnCards(facade, { users: { nova: 'rin', yui: 'rin' } });
+
+            expect(facade._entities['entity-rin'].npcConfig.userRelationships).toEqual([
+                { cardId: 'nova', name: 'Name-nova', label: 'devoted partner', summary: 'a.' },
+                { cardId: 'yui', name: 'Name-yui', label: 'rival', summary: 'b.' }
+            ]);
+        });
+
+        it('a bound source that did not spawn attaches nothing and is never read', () => {
+            readFreshCardUserRelationship.mockReturnValue({ cardId: 'nova', name: 'N', label: 'l', summary: 's' });
+            const facade = relationshipFacade(['rin']); // only the target spawned
+
+            spawnCards(facade, { users: { nova: 'rin' } });
+
+            expect('userRelationships' in facade._entities['entity-rin'].npcConfig).toBe(false);
+            expect(readFreshCardUserRelationship).not.toHaveBeenCalled();
+        });
+
+        it('a bound target that did not spawn attaches nothing and the source is never read', () => {
+            readFreshCardUserRelationship.mockReturnValue({ cardId: 'nova', name: 'N', label: 'l', summary: 's' });
+            const facade = relationshipFacade(['nova']); // only the source spawned
+
+            spawnCards(facade, { users: { nova: 'rin' } });
+
+            expect('userRelationships' in facade._entities['entity-nova'].npcConfig).toBe(false);
+            expect(readFreshCardUserRelationship).not.toHaveBeenCalled();
+        });
+
+        it('a facade without a state entity store (a light double) does not attach and does not throw', () => {
+            readFreshCardUserRelationship.mockReturnValue({ cardId: 'nova', name: 'N', label: 'l', summary: 's' });
+            const facade = {
+                _readCardFiles: () => [
+                    { cardId: 'nova', fullPath: 'data/cards/nova.png' },
+                    { cardId: 'rin', fullPath: 'data/cards/rin.png' }
+                ],
+                _spawnSingleCard: (cardFile) => `entity-${cardFile.cardId}`
+            };
+
+            const report = spawnCards(facade, { users: { nova: 'rin' } });
+
+            expect(report.users).toEqual({ nova: { cardId: 'rin', name: 'Name-rin' } });
+            expect(readFreshCardUserRelationship).not.toHaveBeenCalled();
+        });
+
+        it('without a user mapping the attachment path is never entered', () => {
+            const facade = relationshipFacade(['nova', 'rin']);
+
+            spawnCards(facade);
+
+            expect(readFreshCardUserRelationship).not.toHaveBeenCalled();
+            expect('userRelationships' in facade._entities['entity-nova'].npcConfig).toBe(false);
         });
     });
 });
