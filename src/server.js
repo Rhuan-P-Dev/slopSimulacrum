@@ -6,6 +6,7 @@ import AgentBodyController from './controllers/networking/AgentBodyController.js
 import CardUserRelationshipController from './controllers/networking/CardUserRelationshipController.js';
 import WorldAuthoringController from './controllers/networking/WorldAuthoringController.js';
 import ModPackageWriter from './services/ModPackageWriter.js';
+import WorldOperatorService from './services/WorldOperatorService.js';
 import NpcAIController from './controllers/ai/NpcAIController.js';
 import { buildWorldState } from './composition/WorldComposition.js';
 import SocketLifecycleController from './controllers/networking/SocketLifecycleController.js';
@@ -109,7 +110,12 @@ worldStateController.agentBodyController = agentBodyController;
 const worldAuthoringController = new WorldAuthoringController({
     llmController,
     registryStore,
-    writer: new ModPackageWriter()
+    writer: new ModPackageWriter(),
+    // The live-world half: the operator service reads and mutates the running world
+    // (set Physical.existence, drop an organ, move an item, ...). It is built here from
+    // the same facade + registry store that feeds the authoring flow, so one world view
+    // backs both halves. wiki/decisions/system-live-operator.md
+    operatorService: new WorldOperatorService({ worldStateController, registryStore })
 });
 worldStateController.worldAuthoringController = worldAuthoringController;
 

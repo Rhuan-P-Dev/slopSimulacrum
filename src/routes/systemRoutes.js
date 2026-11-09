@@ -3,12 +3,19 @@
  * conversation and the proposal out, and the one click that turns a proposal into a
  * package.
  *
- * GET  /system/history/:sessionId  -> { sessionId, messages, proposal, updatedAt }
- * POST /system/chat                -> { sessionId, reply, proposal, toolLog, meta }
+ * GET  /system/history/:sessionId  -> { sessionId, messages, proposal, actions, updatedAt }
+ * POST /system/chat                -> { sessionId, reply, proposal, actions, toolLog, meta }
  *      body: { sessionId?: string, message: string (1..4000 chars) }
  * POST /system/write               -> { saved, packageId, dir, files, content, added,
  *                                       overrides, backups, scanned, applied: false }
  *      body: { sessionId: string }
+ * POST /system/execute             -> { executed, results: [{ operation, summary, status,
+ *                                       error?, result? }] }  runs the live plan in order and
+ *                          mutates the world now; an empty plan is 409
+ *      body: { sessionId: string }
+ * POST /system/clear               -> { sessionId, cleared }   discards the plan (no-op if none)
+ *      body: { sessionId: string }
+ * GET  /system/status/:sessionId   -> { sessionId, actions: [...], proposal }  read-only plan view
  *
  * WHY WRITE TAKES A sessionId AND NOT A PROPOSAL. The operator writes exactly what the
  * server validated, not what a client holds (`T-1`): the proposal lives in the session,
@@ -27,6 +34,7 @@
  *   400 { code: 'WRITE_PAYLOAD_INVALID' }            write body without a sessionId
  *   404 { code: 'SESSION_NOT_FOUND' }                unknown session
  *   409 { code: 'PROPOSAL_NOT_SET' }                 write asked with no proposal on the table
+ *   409 { code: 'ACTIONS_NOT_SET' }                  execute asked with no plan on the table
  *   422 { code: 'PROPOSAL_INVALID' }                the proposal broke a rule (`fields` lists them)
  *   422 { code: 'MOD_PACKAGE_*' }                   the writer refused the package
  *   502 { code: LLM error code }                    provider failure
@@ -42,6 +50,7 @@
 import {
     SessionNotFoundError,
     ProposalNotSetError,
+    ActionsNotSetError,
     SYSTEM_ERROR_CODES,
     MAX_MESSAGE_CHARS,
     PROMPT_KIND,
@@ -67,6 +76,13 @@ const writeLimiter = createRateLimiter({
     name: 'system-write-route'
 });
 
+/** Executes the live plan (no provider call, but it mutates the world). Tight budget. */
+const executeLimiter = createRateLimiter({
+    windowMs: 60_000,
+    max: 5,
+    name: 'system-execute-route'
+});
+
 /**
  * Domain error code -> HTTP status. A proposal refusal is 422 (the request was well
  * formed, the content is not) — the same reading `modRoutes` gives a rejected candidate.
@@ -75,7 +91,8 @@ const writeLimiter = createRateLimiter({
 const ERROR_STATUS = {
     [PROPOSAL_ERROR_CODES.INVALID]: 422,
     [SYSTEM_ERROR_CODES.SESSION_NOT_FOUND]: 404,
-    [SYSTEM_ERROR_CODES.PROPOSAL_NOT_SET]: 409
+    [SYSTEM_ERROR_CODES.PROPOSAL_NOT_SET]: 409,
+    [SYSTEM_ERROR_CODES.ACTIONS_NOT_SET]: 409
 };
 
 /** Every code the writer can refuse with. */
@@ -149,12 +166,15 @@ export function register(router, { worldStateController, modService }) {
                 : null;
 
             const turn = await authoring.handleChat({ sessionId, message });
-            // The four fields, named rather than spread: the wire contract stays readable
-            // at the call site and a new controller field cannot leak onto it by accident.
+            // Named rather than spread: the wire contract stays readable at the call
+            // site and a new controller field cannot leak onto it by accident. `actions`
+            // is the session's live plan, so the plan card (Execute / Clear) paints after
+            // the turn without a second round trip.
             res.json({
                 sessionId: turn.sessionId,
                 reply: turn.reply,
                 proposal: turn.proposal,
+                actions: turn.actions,
                 toolLog: turn.toolLog,
                 meta: { ...turn.meta, promptKind: PROMPT_KIND, promptVersion: PROMPT_VERSION }
             });
@@ -250,6 +270,95 @@ export function register(router, { worldStateController, modService }) {
                 return;
             }
             sendRouteError(error, res, '/system/write');
+        }
+    });
+
+    /**
+     * The operator's click: run the live plan of actions, in order, against the running
+     * world. This is what actually executes — a proposal is nothing until written (and
+     * nothing changes the world until written AND applied); an action executes now, without
+     * the round boundary. Mutates the world immediately. Each action is re-validated and
+     * executed; a failure reports itself and the remaining actions still run. An empty
+     * plan is 409 (nothing on the table to run).
+     */
+    router.post('/system/execute', executeLimiter, (req, res) => {
+        try {
+            const authoring = authoringOrError(res, 'executeActions');
+            if (!authoring) return;
+
+            const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {};
+            const sessionId = typeof body.sessionId === 'string' ? body.sessionId.trim() : '';
+            if (sessionId.length === 0) {
+                res.status(400).json({
+                    error: {
+                        code: 'EXECUTE_PAYLOAD_INVALID',
+                        message: 'POST /system/execute requires a "sessionId" string in the JSON body'
+                    }
+                });
+                return;
+            }
+
+            const report = authoring.executeActions(sessionId);
+            res.json(report);
+        } catch (error) {
+            if (error instanceof SessionNotFoundError || error instanceof ActionsNotSetError) {
+                res.status(ERROR_STATUS[error.code] ?? 409).json({ error: { code: error.code, message: error.message } });
+                return;
+            }
+            sendRouteError(error, res, '/system/execute');
+        }
+    });
+
+    /**
+     * Clears the plan of live actions without executing anything: a discard of the table.
+     * A session with no plan is a harmless no-op (the operator may click it out of habit).
+     */
+    router.post('/system/clear', (req, res) => {
+        try {
+            const authoring = authoringOrError(res, 'clearPlan');
+            if (!authoring) return;
+
+            const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {};
+            const sessionId = typeof body.sessionId === 'string' ? body.sessionId.trim() : '';
+            if (sessionId.length === 0) {
+                res.status(400).json({
+                    error: {
+                        code: 'CLEAR_PAYLOAD_INVALID',
+                        message: 'POST /system/clear requires a "sessionId" string in the JSON body'
+                    }
+                });
+                return;
+            }
+
+            const result = authoring.clearPlan(sessionId);
+            // The controller already returns the wire shape ({ sessionId, cleared });
+            // pass it through unchanged so `cleared` is the boolean the client reads.
+            res.json(result);
+        } catch (error) {
+            if (error instanceof SessionNotFoundError) {
+                res.status(ERROR_STATUS[error.code] ?? 404).json({ error: { code: error.code, message: error.message } });
+                return;
+            }
+            sendRouteError(error, res, '/system/clear');
+        }
+    });
+
+    /**
+     * What is on the table: the live plan (empty when none) plus the proposal, if any.
+     * A cheap, read-only read so the client can render its execute/clear buttons without
+     * a write call. 404 for an unknown session.
+     */
+    router.get('/system/status/:sessionId', (req, res) => {
+        try {
+            const authoring = authoringOrError(res, 'getPlanStatus');
+            if (!authoring) return;
+            res.json(authoring.getPlanStatus(req.params.sessionId));
+        } catch (error) {
+            if (error instanceof SessionNotFoundError) {
+                res.status(ERROR_STATUS[error.code] ?? 404).json({ error: { code: error.code, message: error.message } });
+                return;
+            }
+            sendRouteError(error, res, '/system/status/' + req.params.sessionId);
         }
     });
 }

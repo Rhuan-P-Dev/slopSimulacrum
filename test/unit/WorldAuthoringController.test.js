@@ -28,8 +28,10 @@ import WorldAuthoringController, {
     MAX_TOOL_RESULT_CHARS,
     MAX_SESSIONS,
     MAX_HISTORY_MESSAGES,
+    MAX_ACTIONS_PER_SESSION,
     SessionNotFoundError,
-    ProposalNotSetError
+    ProposalNotSetError,
+    ActionsNotSetError
 } from '../../src/controllers/networking/WorldAuthoringController.js';
 import RegistryStore from '../../src/services/RegistryStore.js';
 import { REGISTRY_KINDS } from '../../shared/RegistryKinds.js';
@@ -148,9 +150,12 @@ describe('WorldAuthoringController.handleChat — the loop', () => {
         // A listing carries one real definition: the shape, without spending a call on it.
         expect(materialAnswer.sample).toMatchObject({ key: 'steel', definition: { name: 'Steel' } });
         // Every provider call carries the versioned prompt and the tool set (`RP-1`, `RP-2`).
+        // Reads for definitions (list/read/find), the authoring lever (propose_mod), and the
+        // live levers (inspect the running world, then propose a plan to Execute).
         expect(seam.calls[0].options.system).toContain(`${PROMPT_KIND} v${PROMPT_VERSION}`);
         expect(seam.calls[0].options.tools.map((t) => t.function.name)).toEqual([
-            'list_registries', 'read_registry', 'find_definitions', 'propose_mod'
+            'list_registries', 'read_registry', 'find_definitions', 'propose_mod',
+            'list_entities', 'inspect_entity', 'list_rooms', 'propose_action'
         ]);
         expect(turn.toolLog.map((entry) => entry.name)).toEqual(['list_registries', 'read_registry']);
         expect(turn.meta.iterations).toBe(3);
@@ -438,5 +443,245 @@ describe('WorldAuthoringController.writeProposal', () => {
             expect.objectContaining({ code: 'PROPOSAL_INVALID' })
         );
         expect(writer.writePackage).not.toHaveBeenCalled();
+    });
+});
+
+// =========================================================================
+// (b3) the live action plan (the operator's Execute/Clear table)
+// =========================================================================
+
+// The plan is a per-session queue of server-validated live actions. The LLM
+// proposes; the operator service re-validates (both at proposal time and at
+// execution); the world changes only through the two explicit setters,
+// `setComponentStat` and `setEntityAttributeDelta`.
+
+describe('WorldAuthoringController — the live action plan', () => {
+    const noopWriter = makeWriterSpy();
+
+    /** A fake live world: accepts any well-formed action. */
+    function acceptingOperator() {
+        return {
+            validateAction: vi.fn((operation, rawParams) => ({
+                ok: true,
+                intent: {
+                    operation,
+                    params: rawParams ?? {},
+                    summary: `live ${operation}`
+                }
+            })),
+            executeActions: vi.fn(() => ({ executed: 0, results: [] })),
+            listEntities: vi.fn(() => ({ live: true, entities: [] })),
+            inspectEntity: vi.fn(() => ({ live: true, components: [] })),
+            listRooms: vi.fn(() => ({ live: true, rooms: [] }))
+        };
+    }
+
+    it('propose_action puts the validated action on the table; the plan persists across later turns and into getPlanStatus', async () => {
+        const controller = new WorldAuthoringController({
+            llmController: makeSeam([
+                toolAnswer('propose_action', { operation: 'set_entity_stat', params: { entityId: 'ent-1', traitId: 'Pleasure', statName: 'pleasure', value: 15 } }, 'a'),
+                proseAnswer('It is on the table.'),
+                proseAnswer('Still there.')
+            ]),
+            registryStore: makeStore(),
+            writer: noopWriter,
+            operatorService: acceptingOperator()
+        });
+
+        const first = await controller.handleChat({ message: 'raise its pleasure' });
+        const second = await controller.handleChat({ sessionId: first.sessionId, message: 'what now' });
+
+        expect(first.actions).toHaveLength(1);
+        expect(first.actions[0]).toMatchObject({
+            operation: 'set_entity_stat',
+            params: { entityId: 'ent-1', traitId: 'Pleasure', statName: 'pleasure', value: 15 }
+        });
+        expect(first.actions[0].id).toBeDefined();
+        expect(first.toolLog[0]).toMatchObject({ name: 'propose_action', ok: true });
+
+        // The table outlives the turn that proposed it, carrying the same action.
+        expect(second.actions).toHaveLength(1);
+        expect(second.actions[0].id).toBe(first.actions[0].id);
+
+        const status = controller.getPlanStatus(first.sessionId);
+        expect(status).toMatchObject({
+            sessionId: first.sessionId,
+            actions: [{ operation: 'set_entity_stat' }]
+        });
+    });
+
+    it('a rejected propose_action leaves the plan untouched but answers the model with the rule list', async () => {
+        const operatorService = {
+            validateAction: vi.fn((operation, rawParams) => {
+                const _op = rawParams?.statName ?? '';
+                const isGhost = operation === 'set_entity_stat';
+                return isGhost
+                    ? { ok: false, errors: ['No entity attribute "Movement.move" for this entity. Known: none. For component stats, use set_component_stat with a component id.'] }
+                    : { ok: true, intent: { operation, params: rawParams ?? {}, summary: `live ${operation}` } };
+            }),
+            executeActions: vi.fn(() => ({ executed: 0, results: [] })),
+            listEntities: vi.fn(() => ({ live: true, entities: [] })),
+            inspectEntity: vi.fn(() => ({ live: true, components: [] })),
+            listRooms: vi.fn(() => ({ live: true, rooms: [] }))
+        };
+        const controller = new WorldAuthoringController({
+            llmController: makeSeam([
+                toolAnswer('propose_action', { operation: 'set_entity_stat', params: { traitId: 'Movement', statName: 'move', value: 200 } }, 'a'),
+                toolAnswer('propose_action', { operation: 'move', params: { entityId: 'ent-1' }, target: 'b' }, 'b'),
+                proseAnswer('First refused, so I parked it under the move action instead.')
+            ]),
+            registryStore: makeStore(),
+            writer: noopWriter,
+            operatorService
+        });
+
+        const turn = await controller.handleChat({ message: 'raise its pleasure by 200, or just move it' });
+
+        expect(turn.actions).toHaveLength(1);
+        expect(turn.actions[0].operation).toBe('move');
+        expect(turn.actions[0].params).toEqual({ entityId: 'ent-1' });
+        expect(turn.toolLog[0]).toMatchObject({ name: 'propose_action', ok: false });
+        expect(turn.toolLog[0].detail).toMatch(/No entity attribute "Movement.move"/);
+        expect(turn.toolLog[1]).toMatchObject({ name: 'propose_action', ok: true });
+    });
+
+    it('refuses to grow the plan past MAX_ACTIONS_PER_SESSION and says so to the model', async () => {
+        const proposes = Array.from({ length: MAX_ACTIONS_PER_SESSION + 8 }, (_, i) =>
+            toolAnswer('propose_action', { operation: 'move', params: {} }, `c${i}`)
+        );
+        const controller = new WorldAuthoringController({
+            llmController: makeSeam([...proposes, proseAnswer('Table full.')]),
+            registryStore: makeStore(),
+            writer: noopWriter,
+            operatorService: acceptingOperator()
+        });
+
+        let sessionId = null;
+        const turns = [];
+        for (let i = 0; i < 7; i++) {
+            const turn = await controller.handleChat({ sessionId, message: `wish ${i}` });
+            sessionId = turn.sessionId;
+            turns.push(turn);
+        }
+
+        // Turn six landed four more (the cap filled); the last turn is prose only.
+        expect(turns.at(-1).reply).toBe('Table full.');
+        expect(turns.at(-1).actions).toHaveLength(MAX_ACTIONS_PER_SESSION);
+
+        const overCapTurn = turns[5];
+        expect(overCapTurn.toolLog.filter((t) => t.ok)).toHaveLength(4);
+        expect(overCapTurn.toolLog.at(-1).ok).toBe(false);
+        expect(overCapTurn.toolLog.at(-1).detail).toMatch(new RegExp(`cap ${MAX_ACTIONS_PER_SESSION}`));
+    });
+
+    it('executeActions runs the table through the operator (frozen report), clears it, and records it in history', async () => {
+        const operatorService = {
+            validateAction: vi.fn((operation, rawParams) => ({ ok: true, intent: { operation, params: rawParams ?? {}, summary: `live ${operation}` } })),
+            executeActions: vi.fn(() => ({
+                executed: 2,
+                results: [
+                    { operation: 'set_component_stat', summary: 'set Physical.existence -> 0.75', status: 'ok', result: true },
+                    { operation: 'set_entity_stat', summary: 'set Pleasure.pleasure -> 15', status: 'error', error: 'No entity attribute "Pleasure.pleasure" for this entity. Known: none. For component stats, use set_component_stat with a component id.' }
+                ]
+            })),
+            listEntities: vi.fn(() => ({ live: true, entities: [] })),
+            inspectEntity: vi.fn(() => ({ live: true, components: [] })),
+            listRooms: vi.fn(() => ({ live: true, rooms: [] }))
+        };
+        const controller = new WorldAuthoringController({
+            llmController: makeSeam([
+                toolAnswer('propose_action', { operation: 'set_component_stat', params: { entityId: 'ent-1', componentId: 'comp-1' } }, 'a'),
+                toolAnswer('propose_action', { operation: 'set_entity_stat', params: { entityId: 'ent-1' }, target: 'b' }, 'b'),
+                proseAnswer('Both on the table.'),
+                proseAnswer('done')
+            ]),
+            registryStore: makeStore(),
+            writer: noopWriter,
+            operatorService
+        });
+
+        const turn = await controller.handleChat({ message: 'set existence, then pleasure' });
+        expect(operatorService.executeActions).not.toHaveBeenCalled();
+        expect(turn.actions).toHaveLength(2);
+
+        const report = controller.executeActions(turn.sessionId);
+        expect(report).toEqual({
+            executed: 2,
+            results: [
+                expect.objectContaining({ operation: 'set_component_stat', status: 'ok', result: true }),
+                expect.objectContaining({ operation: 'set_entity_stat', status: 'error', error: expect.stringContaining('No entity attribute') })
+            ]
+        });
+        expect(Object.isFrozen(report.results)).toBe(true);
+        expect(operatorService.executeActions).toHaveBeenCalledTimes(1);
+
+        // The operator got the session's server-side actions (normalized params), in order.
+        const sent = operatorService.executeActions.mock.calls[0][0];
+        expect(sent).toHaveLength(2);
+        expect(sent[0]).toMatchObject({ operation: 'set_component_stat', params: { entityId: 'ent-1', componentId: 'comp-1' } });
+        expect(sent[1]).toMatchObject({ operation: 'set_entity_stat', params: { entityId: 'ent-1' } });
+
+        // The table was cleared; the conversation now remembers what landed.
+        expect(controller.getPlanStatus(turn.sessionId).actions).toHaveLength(0);
+        const messages = controller.getHistory(turn.sessionId).messages.map((m) => m.content ?? '');
+        expect(messages.join(' ')).toContain('[');
+        expect(messages.join(' ')).toContain('[executed 2 action(s): ok (set Physical.existence -> 0.75); error (set Pleasure.pleasure -> 15)]');
+    });
+
+    it('executeActions on an empty table or unknown session throws typed errors, not 500s', async () => {
+        const controller = new WorldAuthoringController({
+            llmController: makeSeam([toolAnswer('list_entities', {}), proseAnswer('no plan.')]),
+            registryStore: makeStore(),
+            writer: noopWriter,
+            operatorService: acceptingOperator()
+        });
+        const turn = await controller.handleChat({ message: 'look around' });
+
+        expect(() => controller.executeActions(turn.sessionId)).toThrow(ActionsNotSetError);
+        expect(() => controller.executeActions('missing')).toThrow(SessionNotFoundError);
+    });
+
+    it('clearPlan erases the table (cleared true), then is a harmless no-op (cleared false)', async () => {
+        const controller = new WorldAuthoringController({
+            llmController: makeSeam([
+                toolAnswer('propose_action', { operation: 'move', params: {} }, 'a'),
+                proseAnswer('On the table.'),
+                proseAnswer('')
+            ]),
+            registryStore: makeStore(),
+            writer: noopWriter,
+            operatorService: acceptingOperator()
+        });
+        const turn = await controller.handleChat({ message: 'move it' });
+
+        const cleared = controller.clearPlan(turn.sessionId);
+        expect(cleared).toMatchObject({ sessionId: turn.sessionId, cleared: true });
+
+        const again = controller.clearPlan(turn.sessionId);
+        expect(again.cleared).toBe(false);
+        expect(again.sessionId).toBe(turn.sessionId);
+    });
+
+    it('rejects an operatorService that lacks validateAction at construction', () => {
+        expect(() => new WorldAuthoringController({
+            llmController: makeSeam([proseAnswer('ok')]),
+            registryStore: makeStore(),
+            writer: noopWriter,
+            operatorService: {}
+        })).toThrow(TypeError);
+    });
+
+    it('throws a named error on a live tool path when the operator service is not wired', async () => {
+        const controller = new WorldAuthoringController({
+            llmController: makeSeam([toolAnswer('list_entities', {}), proseAnswer('no live world.')]),
+            registryStore: makeStore(),
+            writer: noopWriter
+        });
+        const turn = await controller.handleChat({ message: 'look around' });
+
+        expect(turn.toolLog[0]).toMatchObject({ name: 'list_entities', ok: false });
+        expect(turn.toolLog[0].detail).toContain('not wired');
+        // And the table is empty; execute fails with the typed refusal, not a 500.
+        expect(() => controller.executeActions(turn.sessionId)).toThrow(ActionsNotSetError);
     });
 });

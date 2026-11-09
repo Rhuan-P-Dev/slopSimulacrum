@@ -27,12 +27,14 @@ import { register as registerAgentBodyRoutes } from './agentBodyRoutes.js';
 // package directory (data/mods/) — the apply point is a separate change. Dependency
 // is the ModService, not the world facade.
 import { register as registerModRoutes } from './modRoutes.js';
-// "The System" (System tab): POST /system/chat, GET /system/history/:sessionId, POST
-// /system/write. A fourth LLM prompt kind (`system-authoring`, RP-1) that reads the live
-// definition through tools and proposes a data-only package; the proposal reaches disk only
-// through the operator's write click, and applying stays the mod route's (`wiki/decisions/
-// system-authoring.md`). Needs both the facade (the controller is built after the routes)
-// and the ModService (rescan the package directory after a write).
+// "The System" (System tab): POST /system/chat, GET /system/history/:sessionId,
+// POST /system/write, POST /system/execute, POST /system/clear,
+// GET /system/status/:sessionId. A fourth LLM prompt kind (`system-authoring`, RP-1) that
+// reads the live definition through tools and proposes a data-only package; the proposal
+// reaches disk only through the operator's write click, and executing a proposed plan is a
+// separate, explicit act (`POST /system/execute`, `wiki/decisions/system-authoring.md`).
+// Applying stays the mod route's. Needs both the facade (the controller is built after the
+// routes) and the ModService (rescan the package directory after a write).
 import { register as registerSystemRoutes } from './systemRoutes.js';
 // Feature G (perception): room-level delta reads + agent "what happened to me"
 // summary. Read-only observer surface — worldStateController passed through to

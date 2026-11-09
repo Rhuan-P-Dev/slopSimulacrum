@@ -31,6 +31,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { readCharaCard } from '../../src/utils/PngCharaReader.js';
 import { getAttributes } from '../../src/utils/EntityAttributeData.js';
+import WorldOperatorService from '../../src/services/WorldOperatorService.js';
 
 // Card image extensions accepted by WorldStateController._readCardFiles().
 const CARD_IMAGE_EXTS = new Set(['.png', '.webp', '.jpg', '.jpeg', '.jpe', '.bmp', '.gif', '.apng']);
@@ -373,6 +374,12 @@ describe('WorldStateController public method surface', () => {
         'sendRoomChat',
         'serialize',
         'setBroadcastService',
+        // Added deliberately (system-live-operator, wiki/decisions/system-live-operator.md):
+        // the one stat-setter the System operator console needs. It checks the component
+        // belongs to the given live entity before delegating to the existing component
+        // write path (damage/broadcast side-effects). Everything else reuses the existing
+        // public facade surface (see the decision doc for the full operation menu).
+        'setComponentStat',
         'setDroppedItems',
         // Added deliberately (entity_attributes): clamp-bounded mutation of a
         // whole-entity attribute (charge or drain). Mirrors the per-component
@@ -1210,5 +1217,219 @@ describe('WorldStateController object-interact range gate', () => {
         // so pre-feature clients of the move endpoint keep working.
         const legacy = wsc.takeItemFromEntity(gen.id, knifeId, droidId, droidComp.id);
         expect(legacy.success, legacy.message).toBe(true);
+    });
+});
+
+// =========================================================================
+// (b4) the live operator's stat setters — WSC contract + lever validation
+// =========================================================================
+
+// The live console (System tab > Execute) can only write world state through two
+// public setters: `setComponentStat` (absolute value, component-owned) and
+// `setEntityAttributeDelta` (declared whole-entity stats). These pins exist because
+// the reported operator failure was precisely a misused lever: a component stat
+// reached through the entity lever (silent no-op on the WSC side) and the client
+// then displaying a value the operator never changed. A no-op reported as applied
+// is a lie the Execute button must not tell.
+
+describe('WorldStateController — setComponentStat / setEntityAttributeDelta (live operator)', () => {
+    /** The first component of the test droid present in the live component store. */
+    function firstDroidComponent() {
+        const state = wsc.getAll();
+        const droid = wsc.stateEntityController.getEntity(firstEntityId);
+        const comps = Array.isArray(droid?.components) ? droid.components : [];
+        for (const comp of comps) {
+            if (comp && Object.prototype.hasOwnProperty.call(state.components.instances, comp.id)) {
+                return comp.id;
+            }
+        }
+        return Object.keys(state.components.instances).at(0);
+    }
+
+    it('setComponentStat writes the absolute value into the live component store the client reads', () => {
+        const componentId = firstDroidComponent();
+
+        const written = wsc.setComponentStat(firstEntityId, componentId, 'Physical', 'existence', 0.75);
+        expect(written).toBe(true);
+        // A fresh read returns exactly the absolute value — the client sees it.
+        expect(wsc.getAll().components.instances[componentId].Physical.existence).toBe(0.75);
+
+        // Guard behaviour: unknown component and non-numeric values are no-ops,
+        // never crashes — the operator lever stays safe on hand-crafted ids.
+        expect(wsc.setComponentStat(firstEntityId, 'no-such-comp', 'Physical', 'existence', 0.5)).toBe(false);
+        expect(wsc.setComponentStat(firstEntityId, componentId, 'Physical', 'existence', 'a lot')).toBe(false);
+        expect(wsc.getAll().components.instances[componentId].Physical.existence).toBe(0.75);
+    });
+
+    it('setEntityAttributeDelta moves a declared whole-entity stat within its declared cap; undeclared stats are no-ops', () => {
+        // m1Droid declares Physical.energy (seed 100, max 100) — the only entity
+        // attribute on this blueprint. The tick is not running, so seed == live value.
+        const startRoomId = wsc.roomsController.getUidByLogicalId('start_room');
+        const m1Id = wsc.spawnEntity('m1Droid', startRoomId);
+
+        expect(wsc.getEntityAttribute(m1Id, 'Physical', 'energy')).toBe(100);
+        expect(wsc.setEntityAttributeDelta(m1Id, 'Physical', 'energy', -30)).toBe(true);
+        expect(wsc.getEntityAttribute(m1Id, 'Physical', 'energy')).toBe(70);
+        expect(wsc.setEntityAttributeDelta(m1Id, 'Physical', 'energy', 200)).toBe(true);
+        expect(wsc.getEntityAttribute(m1Id, 'Physical', 'energy')).toBe(100); // clamped to the declared max
+        expect(wsc.setEntityAttributeDelta(m1Id, 'Physical', 'energy', 999)).toBe(false); // at cap: no change
+
+        // The trap pinned by the client: a component stat reached through the
+        // entity lever is a no-op (smallBallDroid declares no entity attributes
+        // at all — 'move' / 'strength' live on components, not on the entity).
+        expect(wsc.getEntityAttribute(firstEntityId, 'Physical', 'move')).toBeNull();
+        expect(wsc.setEntityAttributeDelta(firstEntityId, 'Physical', 'move', 100)).toBe(false);
+        expect(wsc.getEntityAttribute(firstEntityId, 'Physical', 'move')).toBeNull();
+    });
+
+    describe('WorldOperatorService — the live levers refuse what the setters cannot own', () => {
+        const operator = () => new WorldOperatorService({ worldStateController: wsc });
+
+        it('set_entity_stat accepts only stats declared for the entity blueprint', () => {
+            const startRoomId = wsc.roomsController.getUidByLogicalId('start_room');
+            const svc = operator();
+
+            // The trap the operator ran: a component stat (Movement.move) reached
+            // through the entity lever.
+            const trap = svc.validateAction('set_entity_stat', {
+                entityId: firstEntityId, traitId: 'Movement', statName: 'move', value: 200
+            });
+            expect(trap.ok).toBe(false);
+            expect(trap.errors.join(' ')).toMatch(/No entity attribute "Movement.move" for this entity/);
+            expect(trap.errors.join(' ')).toMatch(/set_component_stat with a component id/);
+
+            // Physical.strength is a component (function) stat, never an entity stat.
+            const trap2 = svc.validateAction('set_entity_stat', {
+                entityId: firstEntityId, traitId: 'Physical', statName: 'strength', value: 200
+            });
+            expect(trap2.ok).toBe(false);
+            expect(trap2.errors.join(' ')).toMatch(/No entity attribute "Physical.strength" for this entity/);
+
+            // Unknown trait group still names the vocabulary.
+            const badGroup = svc.validateAction('set_entity_stat', {
+                entityId: firstEntityId, traitId: 'Teleport', statName: 'energy', value: 50
+            });
+            expect(badGroup.ok).toBe(false);
+            expect(badGroup.errors.join(' ')).toMatch(/Unknown trait group "Teleport"/);
+
+            // Declared stat: m1Droid's Physical.energy is accepted.
+            const m1Id = wsc.spawnEntity('m1Droid', startRoomId);
+            const good = svc.validateAction('set_entity_stat', {
+                entityId: m1Id, traitId: 'Physical', statName: 'energy', value: 50
+            });
+            expect(good.ok).toBe(true);
+            expect(good.intent.summary).toMatch(/Physical\.energy -> 50/);
+
+            // m1Droid declares no Pleasure (male/female droids do). Per-entity:
+            // maleDroid declares Pleasure.pleasure.
+            expect(svc.validateAction('set_entity_stat', {
+                entityId: m1Id, traitId: 'Pleasure', statName: 'pleasure', value: 15
+            }).ok).toBe(false);
+
+            const maleId = wsc.spawnEntity('maleDroid', startRoomId);
+            const male = svc.validateAction('set_entity_stat', {
+                entityId: maleId, traitId: 'Pleasure', statName: 'pleasure', value: 15
+            });
+            expect(male.ok).toBe(true);
+            expect(male.intent.summary).toMatch(/Pleasure\.pleasure -> 15/);
+        });
+
+        it('set_component_stat accepts an owned stat and refuses a ghost stat (stat the component does not own)', () => {
+            const componentId = firstDroidComponent();
+            const svc = operator();
+
+            const owned = svc.validateAction('set_component_stat', {
+                entityId: firstEntityId, componentId, traitGroup: 'Physical', statName: 'existence', value: 0.75
+            });
+            expect(owned.ok).toBe(true);
+            expect(owned.intent.summary).toMatch(/set component .* Physical\.existence -> 0\.75/);
+
+            // Pleasure is an entity stat — a component never owns it. A SET through
+            // this lever would create a ghost Physical.pleasure group the client then
+            // reads as real; the lever must refuse it upstream.
+            const ghost = svc.validateAction('set_component_stat', {
+                entityId: firstEntityId, componentId, traitGroup: 'Physical', statName: 'pleasure', value: 15
+            });
+            expect(ghost.ok).toBe(false);
+            expect(ghost.errors.join(' ')).toMatch(/does not own Physical\.pleasure/);
+
+            const ghostComp = svc.validateAction('set_component_stat', {
+                entityId: firstEntityId, componentId: 'no-such-comp', traitGroup: 'Physical', statName: 'existence', value: 0.75
+            });
+            expect(ghostComp.ok).toBe(false);
+            expect(ghostComp.errors.join(' ')).toMatch(/No component "no-such-comp"/);
+        });
+
+        it('executeActions re-validates each action against the current world and reports status, not ok', () => {
+            const componentId = firstDroidComponent();
+            const actions = [
+                {
+                    id: 'a1',
+                    operation: 'set_component_stat',
+                    params: { entityId: firstEntityId, componentId, traitGroup: 'Physical', statName: 'existence', value: 0.9 },
+                    summary: 'set component existence'
+                },
+                {
+                    id: 'a2',
+                    operation: 'set_entity_stat',
+                    params: { entityId: firstEntityId, traitId: 'Movement', statName: 'move', value: 200 },
+                    summary: 'set entity move'
+                }
+            ];
+
+            const report = operator().executeActions(actions);
+            expect(report).toMatchObject({ executed: 2 });
+            expect(report.results[0]).toMatchObject({ operation: 'set_component_stat', status: 'ok' });
+            expect(report.results[1]).toMatchObject({ operation: 'set_entity_stat', status: 'error' });
+            expect(report.results[1].error).toMatch(/No entity attribute "Movement.move"/);
+        });
+
+        it('a live no-op (value already in place) reports error, not ok', () => {
+            const startRoomId = wsc.roomsController.getUidByLogicalId('start_room');
+            const entId = wsc.spawnEntity('m1Droid', startRoomId);
+            // Set the stat first (so the live value is a finite number, whatever
+            // the declared range clamps it to), then re-set it to that live value.
+            // The second set is a delta of 0; the setter returns false (no change),
+            // so executeActions must report it as refused/no-op, not ok.
+            operator().executeActions([{ operation: 'set_entity_stat', params: { entityId: entId, traitId: 'Physical', statName: 'energy', value: 50 }, summary: 'set Physical.energy -> 50' }]);
+            const current = wsc.getEntityAttribute(entId, 'Physical', 'energy');
+            expect(Number.isFinite(current), 'entity stat is a number after the set').toBe(true);
+            const report = operator().executeActions([{ operation: 'set_entity_stat', params: { entityId: entId, traitId: 'Physical', statName: 'energy', value: current }, summary: `set Physical.energy -> ${current}` }]);
+            expect(report.results[0]).toMatchObject({ operation: 'set_entity_stat', status: 'error' });
+            expect(report.results[0].error).toBe('Operation was refused or had no effect.');
+        });
+
+        it('a live refusal (destination has no free volume) reports error, not ok', () => {
+            const generator = Object.values(wsc.getEntities() || {}).find(
+                (e) => e && e.name === 'Knife Generator' && Array.isArray(e.components) && e.components.length > 0
+            );
+            const startRoomId = wsc.roomsController.getUidByLogicalId('start_room');
+            const droidId = wsc.stateEntityController.spawnEntity('smallBallDroid', startRoomId);
+            const droid = wsc.stateEntityController.getEntity(droidId);
+            const droidComp = (droid && droid.components) ? droid.components.find((c) => c.type === 'centralBall') : null;
+            expect(generator).toBeTruthy('no Knife Generator world object in the default world');
+            expect(droidComp).toBeTruthy('spawned droid has a centralBall component');
+
+            const used = (droid.items || []).filter((i) => i.hostComponentId === droidComp.id)
+                .reduce((s, i) => s + (i.hostVolume ?? i.volume ?? 0), 0);
+            expect(used, 'the spawned droid carries its starter kit on the centralBall').toBeGreaterThan(0);
+
+            const mgr = wsc.inventoryManager;
+            const realDef = mgr._componentDefinitions.centralBall;
+            mgr._componentDefinitions.centralBall = { traits: { Physical: { volume: used } } };
+
+            const added = wsc.addItemToEntity(generator.id, 'knife', generator.components[0].id);
+            expect(added.success, added.message).toBe(true);
+
+            try {
+                const report = operator().executeActions([{ operation: 'transfer_item', params: { fromEntityId: generator.id, itemId: added.item.id, toEntityId: droidId, toComponentId: droidComp.id }, summary: `transfer item ${added.item.id} into the droid` }]);
+                expect(report.results[0]).toMatchObject({ operation: 'transfer_item', status: 'error' });
+                expect(report.results[0].error).toMatch(/does not have enough volume/);
+            } finally {
+                wsc.removeItemFromEntity(generator.id, added.item.id);
+                mgr._componentDefinitions.centralBall = realDef;
+            }
+        });
+
     });
 });
