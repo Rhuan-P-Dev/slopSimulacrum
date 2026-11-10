@@ -255,6 +255,38 @@ describe('RoomChatController (client, Feature D spec §7.4)', () => {
         expect(messagesEl.children.length).toBe(1);
     });
 
+    it('drops the id-duplicate of a group-opening line, so the next same-round line still joins that group', async () => {
+        stubFetch();
+        fetchResponses.push({ ok: true, status: 200, json: async () => ({ messages: [] }) });
+
+        const { controller } = makeController();
+        controller.init();
+        controller.setFocusedRoom('room-a');
+        controller.show();
+        await new Promise(r => setImmediate(r));
+
+        const messagesEl = globalThis.document.getElementById('room-chat-messages');
+
+        controller.onRoomChatMessage({ id: 'g-1', roomId: 'room-a', speakerName: 'Bolt', text: 'opener', tick: 60, round: 7 });
+        // The socket broadcast of the same server-assigned id arrives once more
+        // (POST echo + broadcast): the duplicate must be dropped before any
+        // DOM/group write, leaving the opened group still open.
+        controller.onRoomChatMessage({ id: 'g-1', roomId: 'room-a', speakerName: 'Bolt', text: 'opener', tick: 60, round: 7 });
+        // A fresh line of the same round must join the existing group, not
+        // open a second one.
+        controller.onRoomChatMessage({ id: 'g-2', roomId: 'room-a', speakerName: 'Player', text: 'joiner', tick: 61, round: 7 });
+
+        const groups = messagesEl.children.filter(c => c.classList.contains('room-chat-group'));
+        expect(groups.length).toBe(1);
+        expect(groups[0].dataset.round).toBe('7');
+        // label + opener row + joiner row; the duplicate rendered nothing.
+        expect(groups[0].children.length).toBe(3);
+        expect(groups[0].children[1].children[1].textContent).toBe('opener');
+        expect(groups[0].children[2].children[1].textContent).toBe('joiner');
+        // messagesEl holds the placeholder row + the single group.
+        expect(messagesEl.children.length).toBe(2);
+    });
+
     it('marks lines by the round they were said in; same-round lines form one group', async () => {
         stubFetch();
         fetchResponses.push({ ok: true, status: 200, json: async () => ({ messages: [] }) });

@@ -134,7 +134,8 @@ export class RoomChatController {
     /**
      * Handles a global `room-chat-message` broadcast. Messages from other
      * rooms are ignored; when the panel is closed they bump the badge.
-     * @param {Object} message - { roomId, speakerName, speakerEntityId, text, tick }
+     * @param {Object} message - { id, roomId, speakerName, speakerEntityId,
+     *   text, tick, ts, sequence, round (null when no turn system answers) }
      */
     onRoomChatMessage(message) {
         if (!message || !this.overlay) return;
