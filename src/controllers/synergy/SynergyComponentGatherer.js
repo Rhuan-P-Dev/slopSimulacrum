@@ -16,7 +16,7 @@ class SynergyComponentGatherer {
     /**
      * @param {ActionSelectController|null} actionSelectController - Component selection controller.
      *
-     * FASE 5: the facade is no longer passed at construction; it is injected via
+     * PHASE 5: the facade is no longer passed at construction; it is injected via
      * setWorldStateController() (called by SynergyController.setWorldStateController()).
      */
     constructor(actionSelectController) {

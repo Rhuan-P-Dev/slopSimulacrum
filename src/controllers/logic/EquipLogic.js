@@ -1,5 +1,5 @@
 /**
- * EquipLogic — FASE 7 (facade logic extraction — phase 2).
+ * EquipLogic — PHASE 7 (facade logic extraction — phase 2).
  *
  * The equipped-item (holding-cost) public API: equip / unequip / transfer
  * (each validates the entity, delegates to the HoldingCostController and
@@ -8,7 +8,7 @@
  *
  * Extracted verbatim from WorldStateController (only change: `this.` became
  * `facade.` and the methods became plain functions; the private
- * `_validateEquippedId` dropped its leading underscore, matching FASE 6's
+ * `_validateEquippedId` dropped its leading underscore, matching PHASE 6's
  * naming convention for extracted functions). The facade keeps a thin
  * delegator method per extracted method so instance-level spies/mocks and
  * direct calls keep working. Narrow-deps rule (mirrors

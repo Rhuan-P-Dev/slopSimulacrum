@@ -17,7 +17,7 @@ class RequirementResolver {
     /**
      * @param {EquippedItemStatsController} [equippedItemStats] - The equipped item stats manager (for mutable stats).
      *
-     * FASE 5: the facade is no longer passed at construction; it is injected via
+     * PHASE 5: the facade is no longer passed at construction; it is injected via
      * setWorldStateController() (called by ActionController.setWorldStateController()).
      */
     constructor(equippedItemStats) {

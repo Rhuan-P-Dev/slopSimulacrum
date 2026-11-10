@@ -43,7 +43,7 @@ class ActionSelectController {
     /**
      * Creates a new ActionSelectController.
      *
-     * FASE 5: the facade is no longer passed at construction. It is injected via
+     * PHASE 5: the facade is no longer passed at construction. It is injected via
      * setWorldStateController() after the facade is fully built (this controller
      * depends on facade.getEquippedItem + the stateEntityController, both resolved
      * through the facade reference).
@@ -76,7 +76,7 @@ class ActionSelectController {
 
     /**
      * Injects the world state facade (WorldStateController) after it is fully built.
-     * FASE 5: replaces the constructor-time facade dependency (BUG-100 root cause).
+     * PHASE 5: replaces the constructor-time facade dependency (BUG-100 root cause).
      * @param {WorldStateController} worldStateController - The fully-built facade.
      */
     setWorldStateController(worldStateController) {

@@ -31,6 +31,7 @@ describe('Portuguese Language Regression Scanner', () => {
     await writeFile(testFile, [
       'const x = "quando o componente falha";',       // PT: should be flagged
       'const w = "defensivo sem injetado seguro";',    // PT: should be flagged (added guard words)
+      'const v = "fase de teste";',                    // PT: should be flagged (fase/fases guard word)
       '// Draws a curved (Bézier) path',               // False positive: should NOT be flagged
       '// Bézier curve with naïve algorithm',          // False positives: should NOT be flagged
       'const y = "fiancée"',                            // False positive: should NOT be flagged
@@ -39,10 +40,11 @@ describe('Portuguese Language Regression Scanner', () => {
 
     const { matches } = await scanForPT([tempDir]);
     
-    // Should find exactly 2 matches (the two PT lines); false-positives excluded
-    expect(matches).toHaveLength(2);
+    // Should find exactly 3 matches (the three PT lines); false-positives excluded
+    expect(matches).toHaveLength(3);
     expect(matches[0].content).toContain('quando');
     expect(matches[1].content).toContain('defensivo');
+    expect(matches[2].content).toContain('fase');
     expect(matches[0].content).not.toContain('Bézier');
     expect(matches[0].content).not.toContain('naïve');
     expect(matches[0].content).not.toContain('fiancée');

@@ -1,5 +1,5 @@
 /**
- * RemovalCascadeLogic — FASE 6 (facade logic extraction).
+ * RemovalCascadeLogic — PHASE 6 (facade logic extraction).
  *
  * The component:broke removal funnel: (a) spill content to the floor
  * (batched writeDroppedItem + disk sampling), (a½) dependency cascade

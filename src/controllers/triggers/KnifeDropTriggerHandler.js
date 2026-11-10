@@ -78,7 +78,7 @@ class KnifeDropTriggerHandler {
             }
         }
 
-        Logger.info(`[KnifeDropTrigger] Dropped ${KNIFE_COUNT} knives in disk around (${position.x},${position.y}), radius ${RADIUS}.`); // FASE 10: log distinto
+        Logger.info(`[KnifeDropTrigger] Dropped ${KNIFE_COUNT} knives in disk around (${position.x},${position.y}), radius ${RADIUS}.`); // PHASE 10: distinct log
     }
 }
 

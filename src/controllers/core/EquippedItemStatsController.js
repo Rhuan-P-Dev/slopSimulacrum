@@ -31,7 +31,7 @@ import { readRegistryFrom } from '../../services/RegistryStore.js';
 
 class EquippedItemStatsController {
     /**
-     * FASE 5: the facade reference previously stored here was dead code (stored but
+     * PHASE 5: the facade reference previously stored here was dead code (stored but
      * never read) — it has been removed. This is now a pure data store with no
      * controller dependencies.
      */

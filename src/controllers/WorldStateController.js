@@ -26,7 +26,7 @@ import { buildSubControllersMap, registerSpawnObserver, registerStatChangeListen
 /**
  * WorldStateController — the world-state facade (thin root).
  *
- * FASE 5 (god-class refactoring): this class NO LONGER instantiates its own
+ * PHASE 5 (god-class refactoring): this class NO LONGER instantiates its own
  * sub-controllers. Every sub-controller is constructed by the composition root
  * (src/composition/WorldComposition.js — `buildWorldState()`), which builds them
  * in topological dependency order and hands them here via `deps`. This removes
@@ -234,7 +234,7 @@ class WorldStateController {
          */
         this._cascadeAffectedEntityIds = null;
 
-        // --- Construction preparation (FASE 7: moved to logic/FacadeInitLogic.js) ---
+        // --- Construction preparation (PHASE 7: moved to logic/FacadeInitLogic.js) ---
         // One-line calls in the ORIGINAL constructor order — the order is
         // part of the composition contract (see the module header for the
         // why of each step).
@@ -367,7 +367,7 @@ class WorldStateController {
 
     /**
     /**
-     * FASE 6 (facade logic extraction): Spawns every NPC declared in data/mods/core-npcs/npcs.json (Feature D, spec §7.2).
+     * PHASE 6 (facade logic extraction): Spawns every NPC declared in data/mods/core-npcs/npcs.json (Feature D, spec §7.2).
      * Implementation: src/controllers/logic/NpcSpawnLogic.js (`spawnDataDrivenNpcs`). This thin
      * delegator stays on the class so instance-level spies/mocks and direct
      * calls (tests) keep working unchanged.
@@ -378,7 +378,7 @@ class WorldStateController {
     }
 
     /**
-     * FASE 6 (facade logic extraction): Data-driven spawn gate for a single registry entry.
+     * PHASE 6 (facade logic extraction): Data-driven spawn gate for a single registry entry.
      * Implementation: src/controllers/logic/NpcSpawnLogic.js (`checkNpcSpawnGate`). This thin
      * delegator stays on the class so instance-level spies/mocks and direct
      * calls (tests) keep working unchanged.
@@ -391,7 +391,7 @@ class WorldStateController {
     }
 
     /**
-     * FASE 6 (facade logic extraction): Validates the optional ai block at boot (M1 + M4).
+     * PHASE 6 (facade logic extraction): Validates the optional ai block at boot (M1 + M4).
      * Implementation: src/controllers/logic/NpcSpawnLogic.js (`normalizeNpcAiConfig`). This thin
      * delegator stays on the class so instance-level spies/mocks and direct
      * calls (tests) keep working unchanged.
@@ -403,7 +403,7 @@ class WorldStateController {
     }
 
     /**
-     * FASE 6 (facade logic extraction): Assembles the persisted npcConfig for a registry entry.
+     * PHASE 6 (facade logic extraction): Assembles the persisted npcConfig for a registry entry.
      * Implementation: src/controllers/logic/NpcSpawnLogic.js (`buildNpcConfig`). This thin
      * delegator stays on the class so instance-level spies/mocks and direct
      * calls (tests) keep working unchanged.
@@ -416,7 +416,7 @@ class WorldStateController {
     }
 
     /**
-     * FASE 6 (facade logic extraction): Applies the entry's initialItems to a just-spawned entity.
+     * PHASE 6 (facade logic extraction): Applies the entry's initialItems to a just-spawned entity.
      * Implementation: src/controllers/logic/NpcSpawnLogic.js (`applyInitialItems`). This thin
      * delegator stays on the class so instance-level spies/mocks and direct
      * calls (tests) keep working unchanged.
@@ -429,7 +429,7 @@ class WorldStateController {
     }
 
     /**
-     * FASE 6 (facade logic extraction): Resolves the host component for an initialItems entry flagged `equip: true`.
+     * PHASE 6 (facade logic extraction): Resolves the host component for an initialItems entry flagged `equip: true`.
      * Implementation: src/controllers/logic/NpcSpawnLogic.js (`resolveEquippableHostComponent`). This thin
      * delegator stays on the class so instance-level spies/mocks and direct
      * calls (tests) keep working unchanged.
@@ -442,7 +442,7 @@ class WorldStateController {
     }
 
     /**
-     * FASE 7 (facade logic extraction): Spawns every image file in `data/cards/` as a distinct LLM-routed M1 droid, always in the first room (in world-definition order) at a uniformly-random point inside it. `options.only` narrows the spawn to chosen card ids (create-world); absent it spawns every card file, which is what boot does.
+     * PHASE 7 (facade logic extraction): Spawns every image file in `data/cards/` as a distinct LLM-routed M1 droid, always in the first room (in world-definition order) at a uniformly-random point inside it. `options.only` narrows the spawn to chosen card ids (create-world); absent it spawns every card file, which is what boot does.
      * Implementation: src/controllers/logic/CardSpawnLogic.js (`spawnCards`). This thin
      * delegator stays on the class so instance-level spies/mocks and direct
      * calls (tests) keep working unchanged.
@@ -505,7 +505,7 @@ class WorldStateController {
     }
 
     /**
-     * FASE 7 (facade logic extraction): Lists the image files that are candidate cards, keyed by a stable stem (filename minus extension) used for logging and as the display-name fallback when a payload is missing.
+     * PHASE 7 (facade logic extraction): Lists the image files that are candidate cards, keyed by a stable stem (filename minus extension) used for logging and as the display-name fallback when a payload is missing.
      * Implementation: src/controllers/logic/CardSpawnLogic.js (`readCardFiles`). This thin
      * delegator stays on the class so instance-level spies/mocks and direct
      * calls (tests) keep working unchanged.
@@ -517,7 +517,7 @@ class WorldStateController {
     }
 
     /**
-     * FASE 7 (facade logic extraction): Reads a single card PNG and spawns it as an M1 LLM NPC; a missing/corrupt payload degrades to the default profile and the file stem as display name, so the entity still spawns (never fails).
+     * PHASE 7 (facade logic extraction): Reads a single card PNG and spawns it as an M1 LLM NPC; a missing/corrupt payload degrades to the default profile and the file stem as display name, so the entity still spawns (never fails).
      * Implementation: src/controllers/logic/CardSpawnLogic.js (`spawnSingleCard`). This thin
      * delegator stays on the class so instance-level spies/mocks and direct
      * calls (tests) keep working unchanged.
@@ -533,7 +533,7 @@ class WorldStateController {
     }
 
     /**
-     * FASE 7 (facade logic extraction): Merges the embedded card payload over the default card profile (personality from the payload, else its description, else the droid fallback; caps/loadout from the default profile).
+     * PHASE 7 (facade logic extraction): Merges the embedded card payload over the default card profile (personality from the payload, else its description, else the droid fallback; caps/loadout from the default profile).
      * Implementation: src/controllers/logic/CardSpawnLogic.js (`buildCardProfile`). This thin
      * delegator stays on the class so instance-level spies/mocks and direct
      * calls (tests) keep working unchanged.
@@ -546,7 +546,7 @@ class WorldStateController {
     }
 
     /**
-     * FASE 7 (facade logic extraction): Picks the FIRST spawnable room (numeric width/height) in world-definition order — deterministic: every card lands in the first room (start_room in the default world). Spawn position is a spawn-time property, so the pick happens once, at boot.
+     * PHASE 7 (facade logic extraction): Picks the FIRST spawnable room (numeric width/height) in world-definition order — deterministic: every card lands in the first room (start_room in the default world). Spawn position is a spawn-time property, so the pick happens once, at boot.
      * Implementation: src/controllers/logic/CardSpawnLogic.js (`pickFirstSpawnRoom`). This thin
      * delegator stays on the class so instance-level spies/mocks and direct
      * calls (tests) keep working unchanged.
@@ -558,7 +558,7 @@ class WorldStateController {
     }
 
     /**
-     * FASE 7 (facade logic extraction): A uniformly-random in-room point, in the same room-local coordinate frame the deterministic NPC spawn uses (center = width/2, height/2).
+     * PHASE 7 (facade logic extraction): A uniformly-random in-room point, in the same room-local coordinate frame the deterministic NPC spawn uses (center = width/2, height/2).
      * Implementation: src/controllers/logic/CardSpawnLogic.js (`roomRandomPoint`). This thin
      * delegator stays on the class so instance-level spies/mocks and direct
      * calls (tests) keep working unchanged.
@@ -571,7 +571,7 @@ class WorldStateController {
     }
 
     /**
-     * FASE 6 (facade logic extraction): Applies the declarative initial spawns from data/mods/core-world/world.json to a spawned entity.
+     * PHASE 6 (facade logic extraction): Applies the declarative initial spawns from data/mods/core-world/world.json to a spawned entity.
      * Implementation: src/controllers/logic/InitialSpawnLogic.js (`applyInitialSpawns`). This thin
      * delegator stays on the class so instance-level spies/mocks and direct
      * calls (tests) keep working unchanged.
@@ -584,7 +584,7 @@ class WorldStateController {
     }
 
     /**
-     * FASE 6 shape (facade logic extraction): dresses a just-spawned entity from the
+     * PHASE 6 shape (facade logic extraction): dresses a just-spawned entity from the
      * outfit registry (`data/mods/core-outfits`, registry kind `outfits`) — the
      * garment its blueprint names, on the component that outfit names.
      * Implementation: src/controllers/logic/OutfitLogic.js (`applyOutfit`). The thin
@@ -599,7 +599,7 @@ class WorldStateController {
     }
 
     /**
-     * FASE 6 (facade logic extraction): Resolves the target component for an initial-spawn entry.
+     * PHASE 6 (facade logic extraction): Resolves the target component for an initial-spawn entry.
      * Implementation: src/controllers/logic/InitialSpawnLogic.js (`resolveInitialSpawnSlot`). This thin
      * delegator stays on the class so instance-level spies/mocks and direct
      * calls (tests) keep working unchanged.
@@ -719,7 +719,7 @@ class WorldStateController {
     }
 
     /**
-     * FASE 6 (facade logic extraction): Death path for an energy-exhausted entity: spill live contents to the floor, then clear inventory.
+     * PHASE 6 (facade logic extraction): Death path for an energy-exhausted entity: spill live contents to the floor, then clear inventory.
      * Implementation: src/controllers/logic/RemovalCascadeLogic.js (`spillAllEntityItems`). This thin
      * delegator stays on the class so instance-level spies/mocks and direct
      * calls (tests) keep working unchanged.
@@ -781,14 +781,14 @@ class WorldStateController {
     }
 
     // =========================================================================
-    // PERSISTENCE — serialize() / restore() (FASE 3)
+    // PERSISTENCE — serialize() / restore() (PHASE 3)
     // =========================================================================
 
     /**
      * Snapshot schema version. Bump when the snapshot format changes;
      * restore() rejects any other version with SCHEMA_VERSION_MISMATCH.
      *
-     * FASE 7 (facade logic extraction): the single source of truth for the
+     * PHASE 7 (facade logic extraction): the single source of truth for the
      * value lives in src/controllers/logic/PersistenceLogic.js (the module
      * that owns serialize()/restore()); this getter only re-exports it so
      * the long-standing `WorldStateController.PERSISTENCE_SCHEMA_VERSION`
@@ -799,7 +799,7 @@ class WorldStateController {
     }
 
     /**
-     * FASE 7 (facade logic extraction): Serializes the COMPLETE mutable world state into a JSON-serializable snapshot, for save/load, checkpoints, and test/debug snapshots.
+     * PHASE 7 (facade logic extraction): Serializes the COMPLETE mutable world state into a JSON-serializable snapshot, for save/load, checkpoints, and test/debug snapshots.
      * Implementation: src/controllers/logic/PersistenceLogic.js (`serialize`). This thin
      * delegator stays on the class so instance-level spies/mocks and direct
      * calls (tests) keep working unchanged.
@@ -809,7 +809,7 @@ class WorldStateController {
     }
 
     /**
-     * FASE 7 (facade logic extraction): Restores the complete world state from a snapshot produced by serialize() — per-sub-controller state injection (the IMPL DECISION note moved to the module).
+     * PHASE 7 (facade logic extraction): Restores the complete world state from a snapshot produced by serialize() — per-sub-controller state injection (the IMPL DECISION note moved to the module).
      * Implementation: src/controllers/logic/PersistenceLogic.js (`restore`). This thin
      * delegator stays on the class so instance-level spies/mocks and direct
      * calls (tests) keep working unchanged.
@@ -1833,7 +1833,7 @@ class WorldStateController {
     }
 
     /**
-     * FASE 6 (facade logic extraction): Crafts a recipe: consumes inputs from any of the entity's components and produces outputs on the named destination component.
+     * PHASE 6 (facade logic extraction): Crafts a recipe: consumes inputs from any of the entity's components and produces outputs on the named destination component.
      * Implementation: src/controllers/logic/CraftingLogic.js (`executeCraftTransaction`). This thin
      * delegator stays on the class so instance-level spies/mocks and direct
      * calls (tests) keep working unchanged.
@@ -1853,7 +1853,7 @@ class WorldStateController {
     }
 
     /**
-     * FASE 6 (facade logic extraction): Craft steps 1–3: resolve recipe, entity, and component.
+     * PHASE 6 (facade logic extraction): Craft steps 1–3: resolve recipe, entity, and component.
      * Implementation: src/controllers/logic/CraftingLogic.js (`resolveCraftTarget`). This thin
      * delegator stays on the class so instance-level spies/mocks and direct
      * calls (tests) keep working unchanged.
@@ -1867,7 +1867,7 @@ class WorldStateController {
     }
 
     /**
-     * FASE 6 (facade logic extraction): Craft step 4: validate every requested item instance.
+     * PHASE 6 (facade logic extraction): Craft step 4: validate every requested item instance.
      * Implementation: src/controllers/logic/CraftingLogic.js (`validateCraftInputs`). This thin
      * delegator stays on the class so instance-level spies/mocks and direct
      * calls (tests) keep working unchanged.
@@ -1882,7 +1882,7 @@ class WorldStateController {
     }
 
     /**
-     * FASE 6 (facade logic extraction): Craft step 6: volume pre-check BEFORE any mutation (item-loss guard).
+     * PHASE 6 (facade logic extraction): Craft step 6: volume pre-check BEFORE any mutation (item-loss guard).
      * Implementation: src/controllers/logic/CraftingLogic.js (`precheckCraftVolume`). This thin
      * delegator stays on the class so instance-level spies/mocks and direct
      * calls (tests) keep working unchanged.
@@ -1897,7 +1897,7 @@ class WorldStateController {
     }
 
     /**
-     * FASE 6 (facade logic extraction): Craft step 7: remove each input item.
+     * PHASE 6 (facade logic extraction): Craft step 7: remove each input item.
      * Implementation: src/controllers/logic/CraftingLogic.js (`consumeCraftInputs`). This thin
      * delegator stays on the class so instance-level spies/mocks and direct
      * calls (tests) keep working unchanged.
@@ -1910,7 +1910,7 @@ class WorldStateController {
     }
 
     /**
-     * FASE 6 (facade logic extraction): Craft step 8: add each output item on the destination component.
+     * PHASE 6 (facade logic extraction): Craft step 8: add each output item on the destination component.
      * Implementation: src/controllers/logic/CraftingLogic.js (`produceCraftOutputs`). This thin
      * delegator stays on the class so instance-level spies/mocks and direct
      * calls (tests) keep working unchanged.
@@ -1939,7 +1939,7 @@ class WorldStateController {
     }
 
     /**
-     * FASE 6 (facade logic extraction): Checks whether an item type is one of the recipe's input types.
+     * PHASE 6 (facade logic extraction): Checks whether an item type is one of the recipe's input types.
      * Implementation: src/controllers/logic/CraftingLogic.js (`isRecipeInputType`). This thin
      * delegator stays on the class so instance-level spies/mocks and direct
      * calls (tests) keep working unchanged.
@@ -1987,7 +1987,7 @@ class WorldStateController {
     // =========================================================================
 
     /**
-     * FASE 7 (facade logic extraction): Equips an item on a component (applies holding cost debuffs, triggers capability re-evaluation).
+     * PHASE 7 (facade logic extraction): Equips an item on a component (applies holding cost debuffs, triggers capability re-evaluation).
      * Implementation: src/controllers/logic/EquipLogic.js (`equipItem`). This thin
      * delegator stays on the class so instance-level spies/mocks and direct
      * calls (tests) keep working unchanged.
@@ -2008,7 +2008,7 @@ class WorldStateController {
     }
 
     /**
-     * FASE 7 (facade logic extraction): Unequips an item from its component (reverses debuffs, triggers capability re-evaluation).
+     * PHASE 7 (facade logic extraction): Unequips an item from its component (reverses debuffs, triggers capability re-evaluation).
      * Implementation: src/controllers/logic/EquipLogic.js (`unequipItem`). This thin
      * delegator stays on the class so instance-level spies/mocks and direct
      * calls (tests) keep working unchanged.
@@ -2025,7 +2025,7 @@ class WorldStateController {
     }
 
     /**
-     * FASE 7 (facade logic extraction): Transfers an equipped item from one component to another (hand swap).
+     * PHASE 7 (facade logic extraction): Transfers an equipped item from one component to another (hand swap).
      * Implementation: src/controllers/logic/EquipLogic.js (`transferEquip`). This thin
      * delegator stays on the class so instance-level spies/mocks and direct
      * calls (tests) keep working unchanged.
@@ -2081,7 +2081,7 @@ class WorldStateController {
     }
 
     /**
-     * FASE 7 (facade logic extraction): Gets all equipped items for an entity.
+     * PHASE 7 (facade logic extraction): Gets all equipped items for an entity.
      * Implementation: src/controllers/logic/EquipLogic.js (`getEquippedItems`). This thin
      * delegator stays on the class so instance-level spies/mocks and direct
      * calls (tests) keep working unchanged.
@@ -2093,7 +2093,7 @@ class WorldStateController {
     }
 
     /**
-     * FASE 7 (facade logic extraction): Gets all equipped items across all entities. Used by the capability controller to scan all equipped items for action resolution.
+     * PHASE 7 (facade logic extraction): Gets all equipped items across all entities. Used by the capability controller to scan all equipped items for action resolution.
      * Implementation: src/controllers/logic/EquipLogic.js (`getAllEquippedItems`). This thin
      * delegator stays on the class so instance-level spies/mocks and direct
      * calls (tests) keep working unchanged.
@@ -2104,7 +2104,7 @@ class WorldStateController {
     }
 
     /**
-     * FASE 7 (facade logic extraction): Gets a specific equipped item by its typed equipped-item ID. TYPED ID MIGRATION: Uses eq- prefixed IDs (e.g., "eq-uuid") for equipped items.
+     * PHASE 7 (facade logic extraction): Gets a specific equipped item by its typed equipped-item ID. TYPED ID MIGRATION: Uses eq- prefixed IDs (e.g., "eq-uuid") for equipped items.
      * Implementation: src/controllers/logic/EquipLogic.js (`getEquippedItem`). This thin
      * delegator stays on the class so instance-level spies/mocks and direct
      * calls (tests) keep working unchanged.
@@ -2117,7 +2117,7 @@ class WorldStateController {
     }
 
     /**
-     * FASE 7 (facade logic extraction): Gets a specific equipped item by its item ID (not typed eqId). TYPED ID MIGRATION: Internal use only — prefers eqId for lookups.
+     * PHASE 7 (facade logic extraction): Gets a specific equipped item by its item ID (not typed eqId). TYPED ID MIGRATION: Internal use only — prefers eqId for lookups.
      * Implementation: src/controllers/logic/EquipLogic.js (`getEquippedItemByItemId`). This thin
      * delegator stays on the class so instance-level spies/mocks and direct
      * calls (tests) keep working unchanged.
@@ -2130,7 +2130,7 @@ class WorldStateController {
     }
 
     /**
-     * FASE 7 (facade logic extraction): Gets an equipped item for a specific component. TYPED ID MIGRATION: Returns equipped item data keyed by eqId for the given component.
+     * PHASE 7 (facade logic extraction): Gets an equipped item for a specific component. TYPED ID MIGRATION: Returns equipped item data keyed by eqId for the given component.
      * Implementation: src/controllers/logic/EquipLogic.js (`getEquippedItemForComponent`). This thin
      * delegator stays on the class so instance-level spies/mocks and direct
      * calls (tests) keep working unchanged.
@@ -2143,7 +2143,7 @@ class WorldStateController {
     }
 
     /**
-     * FASE 7 (facade logic extraction): Validates that an equipped-item ID has the proper "eq-" prefix. TYPED ID MIGRATION: Internal validation helper for typed ID enforcement.
+     * PHASE 7 (facade logic extraction): Validates that an equipped-item ID has the proper "eq-" prefix. TYPED ID MIGRATION: Internal validation helper for typed ID enforcement.
      * Implementation: src/controllers/logic/EquipLogic.js (`validateEquippedId`). This thin
      * delegator stays on the class so instance-level spies/mocks and direct
      * calls (tests) keep working unchanged.
@@ -2569,7 +2569,7 @@ class WorldStateController {
     // =========================================================================
 
     /**
-     * FASE 7 (facade logic extraction): Adds an item to a container item within an entity's inventory.
+     * PHASE 7 (facade logic extraction): Adds an item to a container item within an entity's inventory.
      * Implementation: src/controllers/logic/ContainerItemLogic.js (`addItemToContainer`). This thin
      * delegator stays on the class so instance-level spies/mocks and direct
      * calls (tests) keep working unchanged.
@@ -2587,7 +2587,7 @@ class WorldStateController {
     }
 
     /**
-     * FASE 7 (facade logic extraction): Removes an item from a container item within an entity's inventory.
+     * PHASE 7 (facade logic extraction): Removes an item from a container item within an entity's inventory.
      * Implementation: src/controllers/logic/ContainerItemLogic.js (`removeItemFromContainer`). This thin
      * delegator stays on the class so instance-level spies/mocks and direct
      * calls (tests) keep working unchanged.
@@ -2605,7 +2605,7 @@ class WorldStateController {
     }
 
     /**
-     * FASE 7 (facade logic extraction): Moves an item from component level (or another container) into a container.
+     * PHASE 7 (facade logic extraction): Moves an item from component level (or another container) into a container.
      * Implementation: src/controllers/logic/ContainerItemLogic.js (`moveItemIntoContainer`). This thin
      * delegator stays on the class so instance-level spies/mocks and direct
      * calls (tests) keep working unchanged.
@@ -2623,7 +2623,7 @@ class WorldStateController {
     }
 
     /**
-     * FASE 7 (facade logic extraction): Moves an item out of a container back to the component level.
+     * PHASE 7 (facade logic extraction): Moves an item out of a container back to the component level.
      * Implementation: src/controllers/logic/ContainerItemLogic.js (`moveItemOutOfContainer`). This thin
      * delegator stays on the class so instance-level spies/mocks and direct
      * calls (tests) keep working unchanged.
@@ -2642,7 +2642,7 @@ class WorldStateController {
     }
 
     /**
-     * FASE 7 (facade logic extraction): Gets direct children of a container item.
+     * PHASE 7 (facade logic extraction): Gets direct children of a container item.
      * Implementation: src/controllers/logic/ContainerItemLogic.js (`getContainerItems`). This thin
      * delegator stays on the class so instance-level spies/mocks and direct
      * calls (tests) keep working unchanged.
@@ -2707,7 +2707,7 @@ class WorldStateController {
     // =========================================================================
 
     /**
-     * FASE 6 (facade logic extraction): Removes a broken component/equipped-item instance: (a) spill → (a½) dependency cascade → (b) remove → (c) cleanup → root-exit elimination.
+     * PHASE 6 (facade logic extraction): Removes a broken component/equipped-item instance: (a) spill → (a½) dependency cascade → (b) remove → (c) cleanup → root-exit elimination.
      * Implementation: src/controllers/logic/RemovalCascadeLogic.js (`removeBrokenComponentCascade`). This thin
      * delegator stays on the class so instance-level spies/mocks and direct
      * calls (tests) keep working unchanged.
@@ -2729,7 +2729,7 @@ class WorldStateController {
     }
 
     /**
-     * FASE 6 (facade logic extraction): Phase (a): spill of content from destroyed component/container.
+     * PHASE 6 (facade logic extraction): Phase (a): spill of content from destroyed component/container.
      * Implementation: src/controllers/logic/RemovalCascadeLogic.js (`spillContent`). This thin
      * delegator stays on the class so instance-level spies/mocks and direct
      * calls (tests) keep working unchanged.
@@ -2742,7 +2742,7 @@ class WorldStateController {
     }
 
     /**
-     * FASE 6 (facade logic extraction): Phase (a½): dependency cascade (visited-set prevents loops).
+     * PHASE 6 (facade logic extraction): Phase (a½): dependency cascade (visited-set prevents loops).
      * Implementation: src/controllers/logic/RemovalCascadeLogic.js (`cascadeDependents`). This thin
      * delegator stays on the class so instance-level spies/mocks and direct
      * calls (tests) keep working unchanged.
@@ -2755,7 +2755,7 @@ class WorldStateController {
     }
 
     /**
-     * FASE 6 (facade logic extraction): Direct removal WITHOUT event (for dependents already ≤ 0).
+     * PHASE 6 (facade logic extraction): Direct removal WITHOUT event (for dependents already ≤ 0).
      * Implementation: src/controllers/logic/RemovalCascadeLogic.js (`forceDirectRemoval`). This thin
      * delegator stays on the class so instance-level spies/mocks and direct
      * calls (tests) keep working unchanged.
@@ -2768,7 +2768,7 @@ class WorldStateController {
     }
 
     /**
-     * FASE 6 (facade logic extraction): Entity-level elimination check (root-exit choke-point).
+     * PHASE 6 (facade logic extraction): Entity-level elimination check (root-exit choke-point).
      * Implementation: src/controllers/logic/RemovalCascadeLogic.js (`maybeEliminateEntity`). This thin
      * delegator stays on the class so instance-level spies/mocks and direct
      * calls (tests) keep working unchanged.
@@ -2780,7 +2780,7 @@ class WorldStateController {
     }
 
     /**
-     * FASE 6 (facade logic extraction): Phase (b): unequip + remove instance.
+     * PHASE 6 (facade logic extraction): Phase (b): unequip + remove instance.
      * Implementation: src/controllers/logic/RemovalCascadeLogic.js (`removeComponentOrItem`). This thin
      * delegator stays on the class so instance-level spies/mocks and direct
      * calls (tests) keep working unchanged.
@@ -2793,7 +2793,7 @@ class WorldStateController {
     }
 
     /**
-     * FASE 6 (facade logic extraction): Phase (c): cleanup — stats, internal components, selection, capabilities, equipped items.
+     * PHASE 6 (facade logic extraction): Phase (c): cleanup — stats, internal components, selection, capabilities, equipped items.
      * Implementation: src/controllers/logic/RemovalCascadeLogic.js (`cleanupAfterRemoval`). This thin
      * delegator stays on the class so instance-level spies/mocks and direct
      * calls (tests) keep working unchanged.

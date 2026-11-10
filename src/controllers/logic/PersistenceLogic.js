@@ -1,5 +1,5 @@
 /**
- * PersistenceLogic — FASE 7 (facade logic extraction — phase 2).
+ * PersistenceLogic — PHASE 7 (facade logic extraction — phase 2).
  *
  * The world-state persistence codec: `serialize()` captures the complete
  * mutable world state into a JSON-serializable snapshot; `restore()`

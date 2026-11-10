@@ -629,27 +629,27 @@ describe('NpcAIController.think (AI system, spec §9.1)', () => {
     });
 
     // M3: hasDeterministicBrain static predicate tests
-    it('M3. hasDeterministicBrain → true para {npcConfig:{ai:{behavior:"chase_attack"}}}', () => {
+    it('M3. hasDeterministicBrain → true for {npcConfig:{ai:{behavior:"chase_attack"}}}', () => {
         const entity = { npcConfig: { ai: { behavior: 'chase_attack' } } };
         expect(NpcAIController.hasDeterministicBrain(entity)).toBe(true);
     });
 
-    it('M3. hasDeterministicBrain → false para behavior:""', () => {
+    it('M3. hasDeterministicBrain → false for behavior:""', () => {
         const entity = { npcConfig: { ai: { behavior: '' } } };
         expect(NpcAIController.hasDeterministicBrain(entity)).toBe(false);
     });
 
-    it('M3. hasDeterministicBrain → false para ai:null', () => {
+    it('M3. hasDeterministicBrain → false for ai:null', () => {
         const entity = { npcConfig: { ai: null } };
         expect(NpcAIController.hasDeterministicBrain(entity)).toBe(false);
     });
 
-    it('M3. hasDeterministicBrain → false para npcConfig:{}', () => {
+    it('M3. hasDeterministicBrain → false for npcConfig:{}', () => {
         const entity = { npcConfig: {} };
         expect(NpcAIController.hasDeterministicBrain(entity)).toBe(false);
     });
 
-    it('M3. hasDeterministicBrain → false para entity undefined', () => {
+    it('M3. hasDeterministicBrain → false for entity undefined', () => {
         expect(NpcAIController.hasDeterministicBrain(undefined)).toBe(false);
         expect(NpcAIController.hasDeterministicBrain({})).toBe(false);
     });

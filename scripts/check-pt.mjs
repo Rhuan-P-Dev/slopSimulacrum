@@ -90,6 +90,8 @@ const PT_WORDS = [
   'salas',
   'etapa',
   'etapas',
+  'fase',
+  'fases',
   'passo',
   'passos',
   'caixa',

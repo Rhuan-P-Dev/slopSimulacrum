@@ -1,5 +1,5 @@
 /**
- * ContainerItemLogic — FASE 7 (facade logic extraction — phase 2).
+ * ContainerItemLogic — PHASE 7 (facade logic extraction — phase 2).
  *
  * The nested-inventory public API: add / remove / move-in / move-out of items
  * on container items, plus direct-children queries. Each operation validates

@@ -45,7 +45,7 @@ const ERROR_REGISTRY = {
  */
 class ActionController {
     /**
-     * FASE 5: the facade is no longer passed at construction. It is injected via
+     * PHASE 5: the facade is no longer passed at construction. It is injected via
      * setWorldStateController() after the facade is fully built (this controller —
      * and its nested RangeValidator / ComponentResolver / RequirementResolver /
      * ConsequenceDispatcher — depend on the facade).
@@ -78,7 +78,7 @@ class ActionController {
 
     /**
      * Injects the world state facade (WorldStateController) after it is fully built,
-     * and propagates it to the nested resolvers/validator/dispatcher. FASE 5: replaces
+     * and propagates it to the nested resolvers/validator/dispatcher. PHASE 5: replaces
      * the constructor-time facade dependency (BUG-100 root cause).
      * @param {WorldStateController} worldStateController - The fully-built facade.
      */

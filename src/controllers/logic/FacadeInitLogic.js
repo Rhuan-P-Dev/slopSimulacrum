@@ -1,5 +1,5 @@
 /**
- * FacadeInitLogic — FASE 7 (facade logic extraction — phase 4).
+ * FacadeInitLogic — PHASE 7 (facade logic extraction — phase 4).
  *
  * The WorldStateController constructor's PREPARATION steps, extracted so the
  * constructor is back to its own contract: validate deps, store them, and

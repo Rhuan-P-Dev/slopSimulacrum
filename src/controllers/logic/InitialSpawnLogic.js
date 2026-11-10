@@ -1,5 +1,5 @@
 /**
- * InitialSpawnLogic — FASE 6 (facade logic extraction).
+ * InitialSpawnLogic — PHASE 6 (facade logic extraction).
  *
  * Applies the declarative initial spawns from data/mods/core-world/world.json (initialSpawns)
  * to a just-spawned entity: slot resolution (type / firstFit: /

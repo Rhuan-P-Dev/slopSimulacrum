@@ -1,5 +1,5 @@
 /**
- * CONTRACT TEST — WorldStateController persistence (FASE 3)
+ * CONTRACT TEST — WorldStateController persistence (PHASE 3)
  *
  * Guarantees for serialize()/restore():
  *   1. serialize() returns a pure, JSON-serializable snapshot with the
@@ -32,7 +32,7 @@ import { buildWorldState } from '../../src/composition/WorldComposition.js';
  * socket connection). A smallBallDroid is spawned into start_room so the
  * persistence tests have an entity with declarative initial spawns from
  * data/mods/core-world/world.json.
- * FASE 5: built via the composition root (buildWorldState) — the facade
+ * PHASE 5: built via the composition root (buildWorldState) — the facade
  * no longer self-instantiates its sub-controllers.
  * @returns {WorldStateController}
  */

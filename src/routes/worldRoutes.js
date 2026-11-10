@@ -360,7 +360,7 @@ export function register(router, { worldStateController, broadcastService }) {
 	});
 
 	// =========================================================================
-	// PERSISTENCE — save/load endpoints (FASE 3)
+	// PERSISTENCE — save/load endpoints (PHASE 3)
 	// =========================================================================
 
 	/**

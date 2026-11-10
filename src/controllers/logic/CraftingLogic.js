@@ -1,5 +1,5 @@
 /**
- * CraftingLogic — FASE 6 (facade logic extraction).
+ * CraftingLogic — PHASE 6 (facade logic extraction).
  *
  * The synchronous craft transaction (POST /api/crafting/...): resolve
  * recipe/entity/component, validate input instances (duplicates, existence,

@@ -41,7 +41,7 @@ function writeDroppedItem(worldStateController, itemType, x, y, roomId, ownerId,
         return;
     }
 
-    // FASE 9: ID gerado via generateItemId() + crypto.randomUUID() para unicidade.
+    // PHASE 9: ID generated via generateItemId() + crypto.randomUUID() for uniqueness.
     const itemId = generateItemId();
     
     // PHASE 9: use itemDef passed (no re-fetch that overwrites it)

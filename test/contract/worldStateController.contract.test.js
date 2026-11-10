@@ -165,7 +165,7 @@ let firstEntityId;
 
 beforeAll(() => {
     // Mirror src/server.js: create the tick system (do NOT start it) and build the
-    // world via the composition root (FASE 5). buildWorldState() performs world init
+    // world via the composition root (PHASE 5). buildWorldState() performs world init
     // + initial capability scan, exactly like the old constructor did.
     const tickSystem = new UniversalTickSystem(MAX_TICKS_PER_SECOND);
     ({ worldStateController: wsc } = buildWorldState(tickSystem));

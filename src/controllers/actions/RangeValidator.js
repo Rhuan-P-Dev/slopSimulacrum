@@ -20,7 +20,7 @@ class RangeValidator {
      *   shared with the requirement-checking path). Injected by ActionController so the two
      *   modules never re-implement the same component-scan logic.
      *
-     * FASE 5: the facade is no longer passed at construction; it is injected via
+     * PHASE 5: the facade is no longer passed at construction; it is injected via
      * setWorldStateController() (called by ActionController.setWorldStateController()).
      */
     constructor(actionController, requirementResolver) {

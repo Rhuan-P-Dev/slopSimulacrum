@@ -26,7 +26,7 @@ class SynergyController {
     /**
      * Creates a new SynergyController.
      *
-     * FASE 5: the facade is no longer passed at construction. It is injected via
+     * PHASE 5: the facade is no longer passed at construction. It is injected via
      * setWorldStateController() after the facade is fully built (this controller —
      * and its nested SynergyComponentGatherer — depend on the facade).
      *
@@ -60,7 +60,7 @@ class SynergyController {
 
     /**
      * Injects the world state facade (WorldStateController) after it is fully built,
-     * and propagates it to the nested SynergyComponentGatherer. FASE 5: replaces the
+     * and propagates it to the nested SynergyComponentGatherer. PHASE 5: replaces the
      * constructor-time facade dependency (BUG-100 root cause).
      * @param {WorldStateController} worldStateController - The fully-built facade.
      */

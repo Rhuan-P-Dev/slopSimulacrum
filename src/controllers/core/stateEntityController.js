@@ -261,7 +261,7 @@ class stateEntityController {
     }
 
     // =========================================================================
-    // PERSISTENCE — snapshot restore (FASE 3)
+    // PERSISTENCE — snapshot restore (PHASE 3)
     // =========================================================================
 
     /**

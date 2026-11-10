@@ -1,5 +1,5 @@
 /**
- * NpcSpawnLogic — FASE 6 (facade logic extraction).
+ * NpcSpawnLogic — PHASE 6 (facade logic extraction).
  *
  * Data-driven NPC spawning (Feature D, spec §7.2): loads data/mods/core-npcs/npcs.json and,
  * per registry entry, gates on env, validates the optional ai block, assembles

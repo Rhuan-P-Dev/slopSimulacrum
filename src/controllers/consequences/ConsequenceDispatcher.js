@@ -25,7 +25,7 @@ class ConsequenceDispatcher {
      * @param {ActionController} actionController - Reference to ActionController.
      * @param {SynergyController} [synergyController] - The synergy system controller.
      *
-     * FASE 5: the facade is no longer passed at construction; it is injected via
+     * PHASE 5: the facade is no longer passed at construction; it is injected via
      * setWorldStateController() (called by ActionController.setWorldStateController()).
      */
     constructor(actionController, synergyController) {

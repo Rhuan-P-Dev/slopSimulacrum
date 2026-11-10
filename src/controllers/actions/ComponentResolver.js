@@ -17,7 +17,7 @@ import { TRAIT_GROUPS } from '../../../shared/StatVocabulary.js';
 
 class ComponentResolver {
     /**
-     * FASE 5: the facade is no longer passed at construction; it is injected via
+     * PHASE 5: the facade is no longer passed at construction; it is injected via
      * setWorldStateController() (called by ActionController.setWorldStateController()).
      */
     constructor() {

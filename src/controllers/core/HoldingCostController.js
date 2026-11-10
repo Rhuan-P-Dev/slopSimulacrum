@@ -45,7 +45,7 @@ class HoldingCostController {
     constructor({ actionController, equippedItemStats, registries = null } = {}) {
         /**
          * @type {WorldStateController|null} Injected post-construction via
-         * setWorldStateController() (FASE 5: the facade is no longer passed at
+         * setWorldStateController() (PHASE 5: the facade is no longer passed at
          * construction — BUG-100 root cause).
          */
         this.worldStateController = null;
@@ -84,7 +84,7 @@ class HoldingCostController {
 
     /**
      * Injects the world state facade (WorldStateController) after it is fully built.
-     * FASE 5: replaces the constructor-time facade dependency (BUG-100 root cause).
+     * PHASE 5: replaces the constructor-time facade dependency (BUG-100 root cause).
      * @param {WorldStateController} worldStateController - The fully-built facade.
      */
     setWorldStateController(worldStateController) {

@@ -515,7 +515,7 @@ describe('Trigger system — dependency cascade (tests 16–21)', () => {
     });
 
     // =========================================================================
-    // Tests 8/12/13/14/15: spec §7 tests (FASE 8)
+    // Tests 8/12/13/14/15: spec §7 tests (PHASE 8)
     // =========================================================================
 
     it('Test 8: Equipped item breaks → eqId removed, holding cost restored, 1 event', () => {
@@ -756,7 +756,7 @@ describe('Trigger system — edge cases (tests 22–26)', () => {
      * Test 25: Deterministic handler execution order — two handlers registered for the same
      * trigger event run in registration order (assert observable ordering).
      */
-    it('Test 25: Dois handlers para mesmo evento executam em ordem de registro', () => {
+    it('Test 25: Two handlers for the same event run in registration order', () => {
         const { world } = buildWorld();
         const { entity } = spawnDroid(world);
         const comp = entity.components[0];

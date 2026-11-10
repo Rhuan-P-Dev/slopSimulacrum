@@ -30,7 +30,7 @@ const tickSystem = new UniversalTickSystem(MAX_TICKS_PER_SECOND);
 
 // 3. Initialize controllers
 const llmController = new LLMController();
-// FASE 5: the world state graph (facade + all sub-controllers) is built by the
+// PHASE 5: the world state graph (facade + all sub-controllers) is built by the
 // composition root, which handles topological construction and facade injection.
 const { worldStateController, subControllers, modService, registryStore } = buildWorldState(tickSystem);
 

@@ -41,7 +41,7 @@ class ConsequenceHandlers {
      * @param {WorldEventLogController|null} [deps.worldEventLog] - World event ring buffer
      *   (Feature B): the log handler forwards every resolved log message to it.
      *
-     * FASE 5: the facade (WorldStateController) is no longer passed at construction.
+     * PHASE 5: the facade (WorldStateController) is no longer passed at construction.
      * It is injected via setWorldStateController() after the facade is fully built,
      * and propagated to the focused handlers (which keep reading
      * `this.worldStateController` exactly as before — their class bodies are untouched).
@@ -103,7 +103,7 @@ class ConsequenceHandlers {
 
     /**
      * Injects the world state facade (WorldStateController) after it is fully built,
-     * and propagates it to the focused handlers. FASE 5: replaces the constructor-time
+     * and propagates it to the focused handlers. PHASE 5: replaces the constructor-time
      * facade dependency (BUG-100 root cause).
      * @param {WorldStateController} worldStateController - The fully-built facade.
      */

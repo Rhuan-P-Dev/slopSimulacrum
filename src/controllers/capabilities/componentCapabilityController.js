@@ -37,7 +37,7 @@ class ComponentCapabilityController {
     /**
      * @param {Object} actionRegistry - The registry of available actions.
      *
-     * FASE 5: the facade (WorldStateController) is no longer passed at construction.
+     * PHASE 5: the facade (WorldStateController) is no longer passed at construction.
      * It is injected via setWorldStateController() after the facade is fully built,
      * because this controller depends on multiple facade surfaces (getAll,
      * getAllEquippedItems, getItemRegistry, componentController, equippedItemStats).
@@ -77,7 +77,7 @@ class ComponentCapabilityController {
 
     /**
      * Injects the world state facade (WorldStateController) after it is fully built.
-     * FASE 5: replaces the constructor-time facade dependency, which broke the
+     * PHASE 5: replaces the constructor-time facade dependency, which broke the
      * constructor-ordering guarantee (the facade was only partially initialized
      * when this controller was constructed).
      * @param {WorldStateController} worldStateController - The fully-built facade.

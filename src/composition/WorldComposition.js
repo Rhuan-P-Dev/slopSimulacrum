@@ -1,7 +1,7 @@
 /**
  * WorldComposition — COMPOSITION ROOT for the world state graph.
  *
- * FASE 5 (god-class refactoring): this module is the single place that
+ * PHASE 5 (god-class refactoring): this module is the single place that
  * constructs the WorldStateController's sub-controllers, in topological
  * dependency order, and hands them to the facade via dependency injection.
  *

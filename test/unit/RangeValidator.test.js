@@ -146,7 +146,7 @@ describe('RangeValidator - Range Expression Resolution', () => {
         // RequirementResolver (Single Source of Truth). Inject a mock that mirrors
         // the real resolveEntityRequirementValues() contract.
         const mockRequirementResolver = createMockRequirementResolver(mockWSC);
-        // FASE 5: the facade is no longer a constructor argument — it is injected
+        // PHASE 5: the facade is no longer a constructor argument — it is injected
         // post-construction via setWorldStateController() (same as in production,
         // where WorldComposition calls it after the facade is fully built).
         validator = new RangeValidator(mockAC, mockRequirementResolver);

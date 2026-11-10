@@ -20,7 +20,7 @@
  *   factor  := ('+' | '-') factor | primary
  *   primary := number | ':placeholder' | '(' expr ')'
  *
- * Semantics (per the FASE 0 contract):
+ * Semantics (per the PHASE 0 contract):
  *   - A `:placeholder` that is NOT present in `statMap` (or maps to a non-finite
  *     number) makes the WHOLE expression unresolvable. `resolveRange` then returns
  *     the caller-supplied `fallback` value — it NEVER silently substitutes 0.

@@ -1,5 +1,5 @@
 /**
- * CardSpawnLogic — FASE 7 (facade logic extraction — phase 2).
+ * CardSpawnLogic — PHASE 7 (facade logic extraction — phase 2).
  *
  * Card-droid (image-card) system (data-driven, see wiki/subMDs/data/cards.md).
  *

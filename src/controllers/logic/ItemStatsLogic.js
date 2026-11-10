@@ -1,12 +1,12 @@
 /**
- * ItemStatsLogic — FASE 7 (facade logic extraction — phase 3).
+ * ItemStatsLogic — PHASE 7 (facade logic extraction — phase 3).
  *
  * The full stats computation for a single item instance: base traits from
  * the item definition, dynamic stats while equipped, and the holding-cost
  * requirements shown as informational metadata.
  *
  * Extracted verbatim from WorldStateController.getItemStats (only change:
- * `this.<dep>` became a named parameter). Unlike the FASE 6/7 siblings,
+ * `this.<dep>` became a named parameter). Unlike the PHASE 6/7 siblings,
  * this module takes EXPLICIT dependencies instead of the facade: its
  * dependency set is exactly four objects and the logic is read-only, the
  * narrow-deps exception the convention ruling permits (plans/

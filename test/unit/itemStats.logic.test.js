@@ -1,6 +1,6 @@
 /**
  * Unit tests for src/controllers/logic/ItemStatsLogic.js (extracted from
- * WorldStateController.getItemStats in FASE 7 — plans/FIX-PLAN-2026-09.md T9).
+ * WorldStateController.getItemStats in PHASE 7 — plans/FIX-PLAN-2026-09.md T9).
  *
  * The module takes explicit dependencies (no facade), so these tests stub
  * exactly the four objects it reads: stateEntityController, inventoryManager,
