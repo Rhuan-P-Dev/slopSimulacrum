@@ -87,6 +87,25 @@
     font-style: italic;
 }
 
+/* Group: consecutive lines said in the same round share one .room-chat-group
+ * (a single .room-chat-group-label on top). The flat left border marks the
+ * group edge; lines with an unknown round stay outside any group. */
+.room-chat-group {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    padding: 2px 0 2px 8px;
+    border-left: 2px solid var(--config-bar-border);
+}
+
+.room-chat-group-label {
+    color: var(--text-dim);
+    font-size: 0.8em;
+    font-weight: bold;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
 /* =========================================================================
  * Input footer
  * ========================================================================= */

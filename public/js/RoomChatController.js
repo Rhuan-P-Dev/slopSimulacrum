@@ -19,6 +19,11 @@
  *     .overlay-header  (h3.overlay-title "Room Chat", .room-chat-room-name,
  *                       #room-chat-badge, .overlay-close-btn)
  *     #room-chat-messages.room-chat-messages
+ *       - rendered lines: consecutive lines said in the same `round` live in
+ *         one .room-chat-group (dataset.round, one .room-chat-group-label
+ *         "Round N"); lines whose round is unknown render as flat
+ *         .room-chat-row and close any open group; .room-chat-empty is the
+ *         placeholder when the list is empty
  *     .overlay-footer  > #room-chat-input.room-chat-input
  *
  * Follows the client patterns: no console.* (ClientLogger), no app.locals —
@@ -64,6 +69,14 @@ export class RoomChatController {
          * message — render it only once).
          */
         this._renderedKeys = new Map();
+        /**
+         * @type {HTMLElement|null} The group (`.room-chat-group`) opened by the
+         * last line appended — non-null only while the last line belongs to a
+         * round group. A line with the same round joins it; a line with a
+         * different or unknown round opens a new group or renders flat
+         * (null again). Cleared on full re-render.
+         */
+        this._currentGroup = null;
     }
 
     /**
@@ -237,6 +250,7 @@ export class RoomChatController {
         if (!this._messagesEl) return;
         this._messagesEl.innerHTML = '';
         this._renderedKeys.clear();
+        this._currentGroup = null;
         for (const message of messages) {
             this._appendMessage(message);
         }
@@ -244,8 +258,11 @@ export class RoomChatController {
     }
 
     /**
-     * Appends a single message row: speaker name (bold, colored for NPCs)
-     * + text. Speaker names are HTML-escaped.
+     * Appends one line to the list: speaker name (bold, colored for NPCs)
+     * + text. Consecutive lines said in the same `round` are folded into a
+     * single group (one .room-chat-group with a "Round N" label); a line
+     * whose round is unknown (restored transcript, sent with no turn system
+     * wired) renders flat and closes any open group.
      * @param {Object} message
      * @private
      */
@@ -265,6 +282,31 @@ export class RoomChatController {
             if (first !== undefined) this._renderedKeys.delete(first);
         }
 
+        const row = this._createRow(message);
+        const round = this._messageRound(message);
+        if (round === null) {
+            this._messagesEl.appendChild(row);
+            this._currentGroup = null;
+        } else if (this._currentGroup !== null
+            && this._currentGroup.dataset.round === String(round)) {
+            this._currentGroup.appendChild(row);
+        } else {
+            const group = this._startGroup(round);
+            group.appendChild(row);
+            this._messagesEl.appendChild(group);
+            this._currentGroup = group;
+        }
+        this._scrollToBottom();
+    }
+
+    /**
+     * Builds one `.room-chat-row`: speaker (bold, colored for NPCs) + text,
+     * HTML-escaped via textContent.
+     * @param {Object} message
+     * @returns {HTMLElement}
+     * @private
+     */
+    _createRow(message) {
         const row = document.createElement('div');
         row.className = 'room-chat-row';
 
@@ -281,8 +323,42 @@ export class RoomChatController {
 
         row.appendChild(speaker);
         row.appendChild(text);
-        this._messagesEl.appendChild(row);
-        this._scrollToBottom();
+        return row;
+    }
+
+    /**
+     * The round a line was said in, per the server stamp — or null when the
+     * stamp is absent or not a non-negative integer. Never guessed (wiki
+     * decision round-scoped-context.md: unknown rounds stay visible to humans,
+     * they are never backfilled).
+     * @param {Object} message
+     * @returns {number|null}
+     * @private
+     */
+    _messageRound(message) {
+        const round = message?.round;
+        return (Number.isInteger(round) && round >= 0) ? round : null;
+    }
+
+    /**
+     * Opens a new `.room-chat-group` for `round` (label + container) and
+     * returns it, so this line and any following same-round lines land inside
+     * it.
+     * @param {number} round
+     * @returns {HTMLElement}
+     * @private
+     */
+    _startGroup(round) {
+        const group = document.createElement('div');
+        group.className = 'room-chat-group';
+        group.dataset.round = String(round);
+
+        const label = document.createElement('div');
+        label.className = 'room-chat-group-label';
+        label.textContent = `Round ${round}`;
+
+        group.appendChild(label);
+        return group;
     }
 
     /**
@@ -293,6 +369,7 @@ export class RoomChatController {
     _renderEmpty(placeholder) {
         if (!this._messagesEl) return;
         this._messagesEl.innerHTML = '';
+        this._currentGroup = null;
         const row = document.createElement('div');
         row.className = 'room-chat-row room-chat-empty';
         row.textContent = placeholder;

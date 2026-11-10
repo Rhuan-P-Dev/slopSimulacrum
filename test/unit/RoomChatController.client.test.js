@@ -15,6 +15,10 @@
  *     fetch) with the /rooms/<uid>/chat?limit=50 URL;
  *   - onRoomChatMessage: room filtering, open → row appended, closed →
  *     badge increments; dedupe of the REST echo + socket broadcast pair;
+ *   - round grouping: lines said in the same `round` share one
+ *     .room-chat-group with a "Round N" label (live socket append and
+ *     history load); a new round opens a new group, a missing/unknown round
+ *     renders flat;
  *   - send: Enter key on the input → POST /rooms/<uid>/chat with
  *     { message, speakerName: 'Player' }; 4xx → handleError surfaced;
  *     over-long input rejected client-side without a POST.
@@ -38,18 +42,13 @@ function makeElement(id = '', leaf = false) {
     const el = {
         id,
         style: { display: 'none' },
-        className: '',
         textContent: '',
         innerHTML: '',
         value: '',
         children: [],
         _listeners: {},
-        classList: {
-            _set: new Set(),
-            add(cls) { this._set.add(cls); },
-            remove(cls) { this._set.delete(cls); },
-            contains(cls) { return this._set.has(cls); }
-        },
+        _classes: new Set(),
+        dataset: {},
         appendChild(child) {
             this.children.push(child);
             return child;
@@ -69,6 +68,25 @@ function makeElement(id = '', leaf = false) {
             (this._listeners.click || []).forEach(fn => fn({ target: this }));
         }
     };
+    // className and classList share one set, like the real DOM: the client
+    // writes className (rows, groups) and reads classList.contains() (speakers).
+    Object.defineProperty(el, 'className', {
+        get() {
+            return [...el._classes].join(' ');
+        },
+        set(value) {
+            el._classes = new Set(String(value).split(' ').filter(Boolean));
+        }
+    });
+    Object.defineProperty(el, 'classList', {
+        get() {
+            return {
+                add(cls) { el._classes.add(cls); },
+                remove(cls) { el._classes.delete(cls); },
+                contains(cls) { return el._classes.has(cls); }
+            };
+        }
+    });
     if (!leaf) {
         el._closeBtn = makeLeaf();
         el._roomName = makeLeaf();
@@ -235,6 +253,68 @@ describe('RoomChatController (client, Feature D spec §7.4)', () => {
 
         const messagesEl = globalThis.document.getElementById('room-chat-messages');
         expect(messagesEl.children.length).toBe(1);
+    });
+
+    it('marks lines by the round they were said in; same-round lines form one group', async () => {
+        stubFetch();
+        fetchResponses.push({ ok: true, status: 200, json: async () => ({ messages: [] }) });
+
+        const { controller } = makeController();
+        controller.init();
+        controller.setFocusedRoom('room-a');
+        controller.show();
+        await new Promise(r => setImmediate(r));
+
+        const messagesEl = globalThis.document.getElementById('room-chat-messages');
+
+        controller.onRoomChatMessage({ id: 'c-1', roomId: 'room-a', speakerName: 'Bolt', text: 'first of seven', tick: 30, round: 7 });
+        controller.onRoomChatMessage({ id: 'c-2', roomId: 'room-a', speakerName: 'Player', text: 'second of seven', tick: 32, round: 7 });
+        controller.onRoomChatMessage({ id: 'c-3', roomId: 'room-a', speakerName: 'Player', text: 'line three', tick: 41, round: 8 });
+        controller.onRoomChatMessage({ id: 'c-4', roomId: 'room-a', speakerName: 'Bolt', text: 'line with no round', tick: 43 });
+        controller.onRoomChatMessage({ id: 'c-5', roomId: 'room-a', speakerName: 'Player', text: 'first of nine', tick: 47, round: 9 });
+
+        const groups = messagesEl.children.filter(c => c.classList.contains('room-chat-group'));
+        expect(groups.length).toBe(3);
+        expect(groups[0].dataset.round).toBe('7');
+        expect(groups[1].dataset.round).toBe('8');
+        expect(groups[2].dataset.round).toBe('9');
+        // One label per group, carrying the round number.
+        expect(groups[0].children.length).toBe(3); // label + two rows
+        expect(groups[0].children[0].textContent).toBe('Round 7');
+        expect(groups[0].children[1].children[1].textContent).toBe('first of seven');
+        expect(groups[0].children[2].children[1].textContent).toBe('second of seven');
+        expect(groups[1].children.length).toBe(2); // label + one row
+        // The no-round line renders flat (not grouped) and does not join the
+        // next round's group.
+        const flat = messagesEl.children[3];
+        expect(flat.classList.contains('room-chat-group')).toBe(false);
+        expect(flat.children[1].textContent).toBe('line with no round');
+        expect(messagesEl.children.length).toBe(5); // placeholder + 3 groups + 1 flat
+    });
+
+    it('history load groups rendered rows by the round stamp from the GET list', async () => {
+        stubFetch();
+        fetchResponses.push({ ok: true, status: 200, json: async () => ({ messages: [
+            { id: 'c-1', roomId: 'room-a', speakerName: 'Bolt', text: 'one', tick: 1, round: 3 },
+            { id: 'c-2', roomId: 'room-a', speakerName: 'Player', text: 'two', tick: 2, round: 3 },
+            { id: 'c-3', roomId: 'room-a', speakerName: 'Bolt', text: 'three', tick: 3, round: 4 },
+            { id: 'c-4', roomId: 'room-a', speakerName: 'Player', text: 'four', tick: 5, round: 4 },
+        ] }) });
+
+        const { controller } = makeController();
+        controller.init();
+        controller.setFocusedRoom('room-a');
+        controller.show();
+        await new Promise(r => setImmediate(r));
+
+        const messagesEl = globalThis.document.getElementById('room-chat-messages');
+        expect(messagesEl.children.length).toBe(2); // two groups, no flat rows
+        expect(messagesEl.children[0].dataset.round).toBe('3');
+        expect(messagesEl.children[0].children.length).toBe(3); // label + two rows
+        expect(messagesEl.children[0].children[0].textContent).toBe('Round 3');
+        expect(messagesEl.children[1].dataset.round).toBe('4');
+        expect(messagesEl.children[1].children.length).toBe(3); // label + two rows
+        expect(messagesEl.children[1].children[0].textContent).toBe('Round 4');
     });
 
     it('Enter sends POST /rooms/<uid>/chat { message, speakerName: "Player" } and appends the echo', async () => {
