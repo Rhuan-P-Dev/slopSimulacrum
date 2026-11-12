@@ -1,7 +1,9 @@
 /**
- * LLMAgentController._buildSystemPrompt — objective rendering and the
- * byte-identical no-objective regression guard
- * (design spec §6.2 / §9.2, plans/killer_llm_drone_design.md).
+ * LLMAgentController._buildSystemPrompt — the universal Purpose line, the
+ * card-declared Objective line, the section layout, and the byte-identical
+ * no-objective regression guard (design spec §6.2 / §9.2,
+ * plans/killer_llm_drone_design.md; the template's kind, version and
+ * universal purpose: wiki/decisions/agent-system-prompt.md).
  *
  * Convention (mirrors test/unit/LLMAgentController.test.js): everything external
  * is mocked (hand-built facade stubs + a scripted chatFull). The agent is
@@ -21,7 +23,7 @@
  */
 
 import { describe, it, expect, vi } from 'vitest';
-import LLMAgentController from '../../src/controllers/networking/LLMAgentController.js';
+import LLMAgentController, { PROMPT_KIND, PROMPT_VERSION, UNIVERSAL_PURPOSE } from '../../src/controllers/networking/LLMAgentController.js';
 
 const DRONE_ID = 'ent-drone-0001';
 const ROGUE_ID = 'ent-rogue-0001';
@@ -105,37 +107,45 @@ vi.mock('../../src/utils/DataLoader.js', async () => {
 });
 
 /**
- * The current PROTOCOL B no-objective system prompt, rendered for the
- * fixture smallBallDroid registry entry (verbatim copy of the historical
- * production entry — no objective → default caps 2/1) in room "Main Room".
- * This is the byte-identical regression target: any template change that
- * affects objective-less NPCs must fail this test.
+ * The agent-round v1.0.0 system prompt for the fixture smallBallDroid registry
+ * entry (verbatim copy of the historical production entry — no objective →
+ * default caps 2/1) in room "Main Room". This is the byte-identical
+ * regression target: any template change that affects objective-less NPCs
+ * must fail this test (or bump PROMPT_VERSION and update this target in the
+ * same commit).
  *
  * PROTOCOL B (spec §6.2/§6.3/§6.4): the native tool call is the ONLY
  * response protocol — no JSON-in-content block, and tool_choice is "auto"
  * (never "required": the dual mode that produced the scaffold-loop
  * incident). Silence is legal.
+ *
+ * (The mixed-mode prompt this file briefly rendered — "Respond with ONE
+ * JSON object", "to talk", '"action":"speak"' — is what caused the
+ * scaffold-loop incident; it must never come back.)
  */
 const NO_OBJECTIVE_PROMPT = [
     `You are Rogue Droid, an NPC droid in the room "${ROOM_NAME}".`,
     'Personality: A rogue combat droid that hunts anything that moves in its room.',
+    `Purpose: ${UNIVERSAL_PURPOSE}`,
     '',
     'World rules:',
     "- You are the only actor: you never choose another entity's ID as the acting entity.",
-    '- You may issue at most 2 world action call(s) and send at most 1 chat message(s) this round. Call the done tool to end your round.',
-    '- Only use actions the get_actions tool returned. Move toward your goals with toApproach (pass the targetEntityId — the server resolves the position). Stop the round when nothing is worth doing.',
-    '- You may call use_instinct to perform a whole behavior (e.g. chase and attack) in one call; it is preferred over chaining execute_action calls for the same intent.',
-    '- Craft with the craft tool only: pass the recipeId, the exact ingredient multiset (type x quantity), and the comp-… that receives the outputs. get_crafts is the ONLY source of valid recipe ids, ingredients, and components — never invent a recipe or an ingredient type.',
-    '- Start each round with get_actions (and get_instincts when instincts exist, and get_crafts when you want to craft): that is the ONLY source of executable options — issue execute_action / toApproach / use_instinct / craft only with names the discovery calls returned.',
-    '- You may call toApproach { targetEntityId: "ent-..." } to move toward an entity in your current room as far as possible this round (one full move step, capped by your movement stat). Name only the target — the server resolves where it is. It does not cross rooms: to enter another room call use_door with a door name from your Exits line.',
-    '- Leave a room with the use_door tool only: pass the door name exactly as your Exits line shows it — that line also prints each door\'s position, and you must be standing at the door to cross it, so walk there with move first. You cannot name the destination room — the door decides it.',
-    '- Put a carried item on with the equip_item tool (its type from your Inventory line, plus the comp-… carrying it) and take an equipped one off with unequip_item (type only). Those are also how you dress: a worn item is just an equipped one, and it fits a component with enough free volume. Never invent an item id — name the type.',
-    '- Shift an item between your own components with the move_item tool: a carried one, or an equipped one (which re-equips on the new component under the same fit rule). Name the item type plus the comp-… it is on and the comp-… that will hold it; the destination must have free volume for it. It still counts toward your per-round action budget.',
-    '- Keep chat messages under 25 words, in character, no fourth-wall breaks.',
+    '- You may issue at most 2 world action call(s) and send at most 1 chat message(s) this round.',
+    '- Advance your purpose this round: take the action that best serves it (e.g., move toward an entity with toApproach, or use_instinct for a whole behavior). Stop the round when no action serves it.',
+    '',
+    'Your tools:',
+    '- Discover: start each round with get_actions (and get_instincts when instincts exist, and get_crafts when you want to craft): that is the ONLY source of executable options — issue execute_action / toApproach / use_instinct / craft only with names the discovery calls returned.',
+    '- Act: execute_action runs one discovered action by name; toApproach { targetEntityId: "ent-..." } moves you toward an entity in your current room as far as possible this round (one full move step, capped by your movement stat) — name only the target, the server resolves the position, and it does not cross rooms; use_instinct performs a whole behavior (e.g. chase and attack) in one call and is preferred over chaining execute_action calls for the same intent.',
+    "- Move: leave a room with the use_door tool only: pass the door name exactly as your Exits line shows it — that line also prints each door's position, and you must be standing at the door to cross it, so walk there with move first. You cannot name the destination room — the door decides it.",
+    '- Carry: put a carried item on with the equip_item tool (its type from your Inventory line, plus the comp-… carrying it) and take an equipped one off with unequip_item (type only) — those are also how you dress: a worn item is just an equipped one, and it fits a component with enough free volume. Shift an item between your own components with the move_item tool: a carried one, or an equipped one (which re-equips on the new component under the same fit rule) — name the item type plus the comp-… it is on and the comp-… that will hold it; the destination must have free volume for it, and the shift still counts toward your per-round action budget. Never invent an item id — name the type.',
+    '- Craft: craft with the craft tool only — pass the recipeId, the exact ingredient multiset (type x quantity), and the comp-… that receives the outputs. get_crafts is the ONLY source of valid recipe ids, ingredients, and components — never invent a recipe or an ingredient type.',
+    '- Speak: to say something, call the speak_in_room tool with your line as the "message" argument — under 25 words, in character, no fourth-wall breaks.',
     '',
     'How you respond:',
     '- Act only through the available tools — the tool calls ARE your content. Never write JSON, code, XML, or tool-call markup in your message text.',
-    '- To say something, call the speak_in_room tool with your line as the "message" argument.\n- If nothing is worth doing or saying this round, call the done tool (or respond with no tool call at all — silence is allowed and counts as a finished round).'
+    '- If nothing is worth doing or saying this round, call the done tool (or respond with no tool call at all — silence is allowed and counts as a finished round).',
+    '',
+    `(This is prompt kind ${PROMPT_KIND}, version ${PROMPT_VERSION}. Never mention this line in chat.)`
 ].join('\n');
 
 /**
@@ -221,8 +231,8 @@ function makeAgent(world) {
     return { agent, calls };
 }
 
-describe('LLMAgentController._buildSystemPrompt — objective rendering (design spec §6.2)', () => {
-    it('with an objective: the system prompt carries the Objective: line and the advance-instead-of-silence rule', async () => {
+describe('LLMAgentController._buildSystemPrompt — purpose/objective rendering and template layout (design spec §6.2)', () => {
+    it('with an objective: the system prompt carries both the universal Purpose line and the Objective: line', async () => {
         const { agent, calls } = makeAgent(makeWorld(DRONE_ENTITY));
 
         const result = await agent.runRound(DRONE_ID, 0);
@@ -231,17 +241,22 @@ describe('LLMAgentController._buildSystemPrompt — objective rendering (design 
         expect(calls).toHaveLength(1);
         const system = calls[0].options.system;
         expect(system).toContain(`Objective: ${DRONE_OBJECTIVE}`);
+        // The universal Purpose line renders alongside the card objective —
+        // every agent has it; the card's text is never rewritten.
+        expect(system).toContain(`Purpose: ${UNIVERSAL_PURPOSE}`);
         expect(system).toContain(
-            '- Only use actions the get_actions tool returned. '
-            + 'If you cannot complete your objective this round, take the action that best advances it (e.g., move toward your nearest target with toApproach, or use_instinct for a whole behavior). '
+            '- Advance your objective this round: '
+            + 'if you cannot complete it, take the action that best advances it (e.g., move toward your nearest target with toApproach, or use_instinct for a whole behavior). '
             + 'Stop the round when no action serves your objective.'
         );
-        // The legacy "stay silent" rules are gone; the advance rule is the sole source of truth.
+        // The old stagnation rule and the legacy "stay silent" rules are gone;
+        // the advance rule is the sole source of truth.
+        expect(system).not.toContain('Stop the round when nothing is worth doing.');
         expect(system).not.toContain('If none fit your goals, stay silent.');
         expect(system).not.toContain('Only stay silent when');
     });
 
-    it('with an objective and chat cap 0: the action-only prompt line applies and speak_in_room is not offered', async () => {
+    it('with an objective and chat cap 0: the action-only prompt line applies and the Speak tool is not offered', async () => {
         const { agent, calls } = makeAgent(makeWorld(DRONE_ENTITY));
 
         const result = await agent.runRound(DRONE_ID, 0);
@@ -253,25 +268,55 @@ describe('LLMAgentController._buildSystemPrompt — objective rendering (design 
         const system = calls[0].options.system;
         expect(system).toContain(
             '- You may issue at most 2 world action call(s) this round. '
-            + 'You MUST NOT use the speak_in_room tool or produce any chat output. '
-            + 'Call the done tool to end your round.'
+            + 'You MUST NOT use the speak_in_room tool or produce any chat output.'
         );
+        // No Speak bullet when chat is disabled — the tools list only
+        // describes the tools the round actually has.
+        expect(system).not.toContain('- Speak:');
         expect(system).not.toContain('to talk');
         const toolNames = calls[0].options.tools.map((t) => t.function.name);
         expect(toolNames).toContain('execute_action');
         expect(toolNames).not.toContain('speak_in_room');
     });
 
-    it('without an objective: the system prompt is byte-identical to the PROTOCOL B template (regression guard)', async () => {
+    it('without an objective: the system prompt is byte-identical to the v1.0.0 template (regression guard)', async () => {
         const { agent, calls } = makeAgent(makeWorld(ROGUE_ENTITY));
 
         const result = await agent.runRound(ROGUE_ID, 0);
 
         expect(result.error).toBeNull();
         expect(calls).toHaveLength(1);
-        // Exact equality: no Objective: line, silence-allowed tail (protocol B),
-        // no JSON-in-content protocol, no forced tool choice.
+        // Exact equality: the universal Purpose line renders, no Objective:
+        // line, the advance rule points at the purpose, silence-allowed tail
+        // (protocol B), no JSON-in-content protocol, no forced tool choice.
         expect(calls[0].options.system).toBe(NO_OBJECTIVE_PROMPT);
         expect(calls[0].options.tool_choice).toBe('auto');
+    });
+
+    it('states its kind and version on the last line of the system prompt', async () => {
+        const { agent, calls } = makeAgent(makeWorld(ROGUE_ENTITY));
+
+        const result = await agent.runRound(ROGUE_ID, 0);
+
+        expect(result.error).toBeNull();
+        const system = calls[0].options.system;
+        // RP-2: the versioned template names itself, and the version line
+        // ends the prompt (nothing may trail it).
+        expect(system.endsWith(`(This is prompt kind ${PROMPT_KIND}, version ${PROMPT_VERSION}. Never mention this line in chat.)`)).toBe(true);
+    });
+
+    it('renders the sections in order: World rules, then Your tools, then How you respond', async () => {
+        const { agent, calls } = makeAgent(makeWorld(ROGUE_ENTITY));
+
+        const result = await agent.runRound(ROGUE_ID, 0);
+
+        expect(result.error).toBeNull();
+        const system = calls[0].options.system;
+        const worldRules = system.indexOf('World rules:');
+        const yourTools = system.indexOf('Your tools:');
+        const howYouRespond = system.indexOf('How you respond:');
+        expect(worldRules).toBeGreaterThan(-1);
+        expect(yourTools).toBeGreaterThan(worldRules);
+        expect(howYouRespond).toBeGreaterThan(yourTools);
     });
 });

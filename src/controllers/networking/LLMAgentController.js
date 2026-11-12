@@ -10,8 +10,9 @@
  *      use_instinct when instincts exist, craft/get_crafts when the NPC
  *      has a recipe registry, and equip_item / unequip_item for what it carries
  *      and wears, plus move_item to shift it between its own components),
- *      tool_choice "auto", and a
- *      per-NPC system prompt — PROTOCOL B: the native tool call is the ONLY
+ *      tool_choice "auto", and a per-NPC system prompt (kind agent-round,
+ *      versioned — PROMPT_VERSION; wiki/decisions/agent-system-prompt.md) —
+ *      PROTOCOL B: the native tool call is the ONLY
  *      output protocol (no JSON-in-content; the dual mode that briefly ran
  *      here is what produced the scaffold-loop incident, spec §6.4);
  *   4. PRE-VALIDATE every proposed tool call — actionName against the data
@@ -116,6 +117,37 @@ const LLM_AGENT_THINKING_ENV_VAR = 'LLM_AGENT_THINKING_ENABLED';
 function isAgentThinkingEnabled() {
     return isEnvFlagOn(process.env[LLM_AGENT_THINKING_ENV_VAR]);
 }
+
+/**
+ * The RP-1 prompt kind of the per-NPC agent round. Named so a change to
+ * the template can be cited (AGENTS.md lists the prompt kinds; RP-1: one
+ * builder per kind of prompt). The kind and the version are stated in the
+ * prompt itself (its last line) and exported so the inspector-facing code
+ * and the tests can name them without re-reading the template text.
+ * @constant
+ */
+export const PROMPT_KIND = 'agent-round';
+/**
+ * The RP-2 version of the per-NPC system prompt template. Bump on any
+ * change to `_buildSystemPrompt`: major for a layout or protocol change,
+ * minor for wording that changes behaviour, patch for wording-only
+ * polish. The versioned era starts here — the historical spec §6.4
+ * template predates it and was unversioned
+ * (wiki/decisions/agent-system-prompt.md).
+ * @constant
+ */
+export const PROMPT_VERSION = '1.0.0';
+/**
+ * The universal purpose rendered into every agent's system prompt as the
+ * `Purpose:` line (wiki/decisions/agent-system-prompt.md). It exists so no
+ * NPC idles into the silence branch by default: even an entry without a
+ * card-declared objective has something every action can serve. The
+ * wording maps the three words onto data the model already sees — the
+ * `Personality:` line, the body attributes and components of the context
+ * snapshot, and the instincts (the mind).
+ * @constant
+ */
+export const UNIVERSAL_PURPOSE = 'Live by who you are: let your personality set your wants, your body set your limits, and your mind set your choices.';
 
 /**
  * The in-round agent loop is the model's own turn budget, not a retry
@@ -1214,10 +1246,24 @@ class LLMAgentController {
     // =========================================================================
 
     /**
-     * Builds the per-NPC system prompt (spec §6.4 template). Entries with a
-     * non-empty objective gain an `Objective:` line and a strengthened
-     * advance-instead-of-stay-silent rule; entries without one render the
-     * historical template byte-identically.
+     * Builds the per-NPC system prompt — the `agent-round` template, kind
+     * {@link PROMPT_KIND} version {@link PROMPT_VERSION} (RP-2: bump the
+     * version constant on any change to this template; the decision and
+     * its rejected alternatives are in
+     * wiki/decisions/agent-system-prompt.md). Layout, top to bottom:
+     * identity ("You are ...", the Personality line, the universal Purpose
+     * line, the card-declared Objective line when the config carries one,
+     * the judged user-relationships block); World rules (the only-actor
+     * rule, the per-round budget, the advance rule); Your tools (one
+     * bullet per family: discover, act, move, carry, craft, speak); How
+     * you respond (PROTOCOL B + done/silence); and the kind/version line.
+     *
+     * The universal Purpose line renders for EVERY npc, objective or not:
+     * it is what keeps an objective-less NPC from idling into the silence
+     * branch (the historical template ended its advance rule with a line
+     * that permitted idling). The advance rule points at
+     * the card's objective when one is declared and at the universal
+     * purpose when it is not.
      * @private
      * @param {Object} npc - The NPC record: `npc.config` (the resolved per-entity
      *   config — the live entity `npcConfig` merged over the static registry
@@ -1227,7 +1273,8 @@ class LLMAgentController {
      *   as the display-name fallback when the config has no display name).
      *   The live-config precedence is what lets dynamically-spawned cards (no
      *   registry entry) render their own name/personality, while registry
-     *   NPCs stay byte-identical (their live `npcConfig` mirrors the registry).
+     *   NPCs mirror their registry entry (their live `npcConfig` is a copy
+     *   of it).
      * @param {string} roomName - The display name of the NPC's current room,
      *   rendered into the prompt's first line.
      * @returns {string} The full system prompt text issued to the LLM for
@@ -1270,13 +1317,25 @@ class LLMAgentController {
         const rawMaxChatPrompt = config.maxChatMessagesPerRound;
         const maxChat = (rawMaxChatPrompt === 0) ? 0 : this._asPositiveInt(rawMaxChatPrompt, DEFAULT_MAX_CHAT_MESSAGES_PER_ROUND);
 
+        // The per-round budget rule. The "call the done tool to end your
+        // round" sentence the historical variants ended with lives in the
+        // "How you respond:" section now — one home for the round-ending
+        // rule instead of two.
         const chatLine = maxChat > 0
-            ? `- You may issue at most ${maxActions} world action call(s) and send at most ${maxChat} chat message(s) this round. Call the done tool to end your round.`
-            : `- You may issue at most ${maxActions} world action call(s) this round. You MUST NOT use the speak_in_room tool or produce any chat output. Call the done tool to end your round.`;
+            ? `- You may issue at most ${maxActions} world action call(s) and send at most ${maxChat} chat message(s) this round.`
+            : `- You may issue at most ${maxActions} world action call(s) this round. You MUST NOT use the speak_in_room tool or produce any chat output.`;
 
-        const actionRule = objective
-            ? '- Only use actions the get_actions tool returned. If you cannot complete your objective this round, take the action that best advances it (e.g., move toward your nearest target with toApproach, or use_instinct for a whole behavior). Stop the round when no action serves your objective.'
-            : '- Only use actions the get_actions tool returned. Move toward your goals with toApproach (pass the targetEntityId — the server resolves the position). Stop the round when nothing is worth doing.';
+        // The advance rule: the one line that decides what an NPC does
+        // when nothing obvious is available. The historical no-objective
+        // variant ended with a line that permitted idling (PROTOCOL B makes
+        // silence legal, so it read as permission to idle) — exactly what
+        // the universal Purpose line exists to remove. The two variants
+        // mirror each other, pointing at the declared objective or the
+        // universal purpose
+        // (wiki/decisions/agent-system-prompt.md).
+        const advanceRule = objective
+            ? '- Advance your objective this round: if you cannot complete it, take the action that best advances it (e.g., move toward your nearest target with toApproach, or use_instinct for a whole behavior). Stop the round when no action serves your objective.'
+            : '- Advance your purpose this round: take the action that best serves it (e.g., move toward an entity with toApproach, or use_instinct for a whole behavior). Stop the round when no action serves it.';
 
         // PROTOCOL B (restores spec §6.2/§6.3/§6.4): the native tool call is
         // the ONLY response protocol — there is no JSON-in-content block.
@@ -1286,13 +1345,11 @@ class LLMAgentController {
         // local models hedged between them (JSON in the content, function-
         // call markup as literal text) and the markup looped to the token
         // cap. One protocol per request: tools, or silence.
-        const sayLine = maxChat > 0
-            ? '- To say something, call the speak_in_room tool with your line as the "message" argument.\n'
-            : '';
 
         return [
             `You are ${displayName}, an NPC droid in the room "${roomName}".`,
             `Personality: ${personality}`,
+            `Purpose: ${UNIVERSAL_PURPOSE}`,
             ...(objective ? [`Objective: ${objective}`] : []),
             ...(relationshipLines.length > 0
                 ? [
@@ -1305,19 +1362,27 @@ class LLMAgentController {
             'World rules:',
             '- You are the only actor: you never choose another entity\'s ID as the acting entity.',
             chatLine,
-            actionRule,
-            '- You may call use_instinct to perform a whole behavior (e.g. chase and attack) in one call; it is preferred over chaining execute_action calls for the same intent.',
-            '- Craft with the craft tool only: pass the recipeId, the exact ingredient multiset (type x quantity), and the comp-… that receives the outputs. get_crafts is the ONLY source of valid recipe ids, ingredients, and components — never invent a recipe or an ingredient type.',
-            '- Start each round with get_actions (and get_instincts when instincts exist, and get_crafts when you want to craft): that is the ONLY source of executable options — issue execute_action / toApproach / use_instinct / craft only with names the discovery calls returned.',
-            '- You may call toApproach { targetEntityId: "ent-..." } to move toward an entity in your current room as far as possible this round (one full move step, capped by your movement stat). Name only the target — the server resolves where it is. It does not cross rooms: to enter another room call use_door with a door name from your Exits line.',
-            '- Leave a room with the use_door tool only: pass the door name exactly as your Exits line shows it — that line also prints each door\'s position, and you must be standing at the door to cross it, so walk there with move first. You cannot name the destination room — the door decides it.',
-            '- Put a carried item on with the equip_item tool (its type from your Inventory line, plus the comp-… carrying it) and take an equipped one off with unequip_item (type only). Those are also how you dress: a worn item is just an equipped one, and it fits a component with enough free volume. Never invent an item id — name the type.',
-            '- Shift an item between your own components with the move_item tool: a carried one, or an equipped one (which re-equips on the new component under the same fit rule). Name the item type plus the comp-… it is on and the comp-… that will hold it; the destination must have free volume for it. It still counts toward your per-round action budget.',
-            ...(maxChat > 0 ? ['- Keep chat messages under 25 words, in character, no fourth-wall breaks.'] : []),
+            advanceRule,
+            '',
+            // Your tools: one bullet per family. The historical bullet text
+            // was regrouped under the family labels, with the regression-fix
+            // wording kept ("never invent an item id", "the door decides it",
+            // the "ONLY source" calls) and case/punctuation normalized.
+            'Your tools:',
+            '- Discover: start each round with get_actions (and get_instincts when instincts exist, and get_crafts when you want to craft): that is the ONLY source of executable options — issue execute_action / toApproach / use_instinct / craft only with names the discovery calls returned.',
+            '- Act: execute_action runs one discovered action by name; toApproach { targetEntityId: "ent-..." } moves you toward an entity in your current room as far as possible this round (one full move step, capped by your movement stat) — name only the target, the server resolves the position, and it does not cross rooms; use_instinct performs a whole behavior (e.g. chase and attack) in one call and is preferred over chaining execute_action calls for the same intent.',
+            "- Move: leave a room with the use_door tool only: pass the door name exactly as your Exits line shows it — that line also prints each door's position, and you must be standing at the door to cross it, so walk there with move first. You cannot name the destination room — the door decides it.",
+            '- Carry: put a carried item on with the equip_item tool (its type from your Inventory line, plus the comp-… carrying it) and take an equipped one off with unequip_item (type only) — those are also how you dress: a worn item is just an equipped one, and it fits a component with enough free volume. Shift an item between your own components with the move_item tool: a carried one, or an equipped one (which re-equips on the new component under the same fit rule) — name the item type plus the comp-… it is on and the comp-… that will hold it; the destination must have free volume for it, and the shift still counts toward your per-round action budget. Never invent an item id — name the type.',
+            '- Craft: craft with the craft tool only — pass the recipeId, the exact ingredient multiset (type x quantity), and the comp-… that receives the outputs. get_crafts is the ONLY source of valid recipe ids, ingredients, and components — never invent a recipe or an ingredient type.',
+            ...(maxChat > 0
+                ? ['- Speak: to say something, call the speak_in_room tool with your line as the "message" argument — under 25 words, in character, no fourth-wall breaks.']
+                : []),
             '',
             'How you respond:',
             '- Act only through the available tools — the tool calls ARE your content. Never write JSON, code, XML, or tool-call markup in your message text.',
-            sayLine + '- If nothing is worth doing or saying this round, call the done tool (or respond with no tool call at all — silence is allowed and counts as a finished round).'
+            '- If nothing is worth doing or saying this round, call the done tool (or respond with no tool call at all — silence is allowed and counts as a finished round).',
+            '',
+            `(This is prompt kind ${PROMPT_KIND}, version ${PROMPT_VERSION}. Never mention this line in chat.)`
         ].join('\n');
     }
 
