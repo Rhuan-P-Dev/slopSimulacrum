@@ -221,7 +221,8 @@ export class AppMenu {
                 statusEl: document.getElementById('mods-status'),
                 rescanEl: document.getElementById('btn-mods-rescan'),
                 planEl: document.getElementById('btn-mods-plan'),
-                applyEl: document.getElementById('btn-mods-apply')
+                applyEl: document.getElementById('btn-mods-apply'),
+                linesFloatEl: document.getElementById('mods-lines-float')
             });
         }
         return this._mods;

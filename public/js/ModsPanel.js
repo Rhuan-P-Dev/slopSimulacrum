@@ -18,6 +18,13 @@
  *     (`POST /mods/apply`). If a round is open the server says so and the change
  *     still lands at the boundary that was already coming; `applied: false` is a
  *     deferral with a named moment, and the panel says which.
+ *   - **Assets** - per package, a button that opens a *floating* submenu over the
+ *     package list - a semi-transparent veil that covers the list without pushing
+ *     it down - with every definition the package ships, per registry kind: who
+ *     shadows it, whom it shadows, which copy the world runs, a diff against the
+ *     winning copy, and the full final JSON of that copy. Read-only - facts from
+ *     `GET /mods/:id/lines`, bytes back through `GET /mods/:id/files` like the
+ *     Files button; the veil is drawn by `public/js/ModLineViewer.js`.
  *
  * How the list is laid out, and why. A package means nothing on its own: what it
  * does depends on its **place in the stack** (the last package that ships a key is the
@@ -52,6 +59,7 @@
  */
 import ClientLogger from '/utils/ClientLogger.js';
 import { escapeText } from '/utils/EscapeHtml.js';
+import { ModLineViewer, renderLinesSection } from './ModLineViewer.js';
 
 /** How many quarantined definitions to list before "+N more". */
 const LIST_CAP = 15;
@@ -75,7 +83,7 @@ export class ModsPanel {
      * @param {HTMLElement} [options.planEl] - Plan button.
      * @param {HTMLElement} [options.applyEl] - Apply now button.
      */
-    constructor({ contentEl, statusEl, rescanEl, planEl, applyEl }) {
+    constructor({ contentEl, statusEl, rescanEl, planEl, applyEl, linesFloatEl } = {}) {
         if (!contentEl || !statusEl) {
             throw new Error('ModsPanel: contentEl and statusEl are required.');
         }
@@ -87,6 +95,20 @@ export class ModsPanel {
         this._plan = null;
         /** @private id of the package whose files are open, if any */
         this._openFiles = null;
+        /**
+         * @private the per-package asset-lines section. It fetches the same /mods
+         * read surface and re-renders through this panel; `reset()` drops its
+         * cache whenever the install is re-read from disk, because a diff against
+         * the previous scan would be a lie.
+         */
+        this.lines = new ModLineViewer({ render: () => this._renderLinesFloat() });
+        /**
+         * @private the floating asset submenu. A semi-transparent veil that sits
+         * OVER the package list (`position: fixed`, over the Mods screen, below the
+         * menu bar) instead of in the flow, so opening it never pushes the list down.
+         * `null` in a DOM-less context (tests), where it is simply skipped.
+         */
+        this._linesFloat = linesFloatEl ?? document.getElementById('mods-lines-float') ?? null;
         /** @private */
         this._busy = false;
         /** @private which order the package list is drawn in (`SORT_STACK` | `SORT_NAME`) */
@@ -127,6 +149,10 @@ export class ModsPanel {
         const payload = await readJson(res);
         if (!res.ok) throw new Error(messageOf(payload, res.status));
         this._view = payload;
+        // The lines section, if open, must never show a world from the previous
+        // scan: a toggle, move or apply may have moved the winner while the
+        // operator was reading it, so re-read it along with the list.
+        await this.lines.rebase();
         this._render();
         if (rescan) this._setStatus('Package directory re-read.', 'dim');
     }
@@ -268,6 +294,8 @@ export class ModsPanel {
             this._content.innerHTML = '<p class="mods-empty">Loading...</p>';
             return;
         }
+        // The asset submenu is NOT in this flow: it floats over the list (see
+        // _renderLinesFloat), so the list keeps its place no matter what is open.
         const parts = [this._renderSummary(view), this._renderPackages(view)];
         const problem = this._renderProblems(view);
         if (problem) parts.push(problem);
@@ -275,6 +303,36 @@ export class ModsPanel {
         if (this._openFiles) parts.push(this._renderFiles());
         this._content.innerHTML = parts.join('');
         this._wireClicks();
+        // Keep the floating submenu in sync with the same state the list just drew.
+        this._renderLinesFloat();
+    }
+
+    /**
+     * @private Draw the asset submenu into its floating veil (over the list) and
+     * wire that veil's own buttons. Called from the viewer's render callback (so a
+     * fetch finishing late still lands) and from `_render` (a full re-render). The
+     * list is never touched: the float rebuilds only its own DOM, so the package
+     * list behind the translucent veil does not jump.
+     */
+    _renderLinesFloat() {
+        if (!this._linesFloat) return;
+        const section = renderLinesSection(this.lines.state());
+        if (!section) {
+            this._linesFloat.innerHTML = '';
+            this._linesFloat.style.display = 'none';
+            return;
+        }
+        this._linesFloat.innerHTML = section;
+        this._linesFloat.style.display = 'block';
+        for (const button of this._linesFloat.querySelectorAll('[data-lines-diff]')) {
+            button.addEventListener('click', () => void this.lines.openDiff(button.dataset.kind, button.dataset.key));
+        }
+        for (const button of this._linesFloat.querySelectorAll('[data-lines-final]')) {
+            button.addEventListener('click', () => void this.lines.openFinal(button.dataset.kind, button.dataset.key));
+        }
+        for (const button of this._linesFloat.querySelectorAll('.mod-lines-close')) {
+            button.addEventListener('click', () => void this.lines.close());
+        }
     }
 
     /** @private The live definition, and whether a change is waiting. */
@@ -452,6 +510,16 @@ export class ModsPanel {
         }
         const sortButton = this._content.querySelector('[data-sort]');
         if (sortButton) sortButton.addEventListener('click', () => this._toggleSort());
+
+        // Assets: open the package's floating asset submenu. The submenu's own
+        // buttons (diff / final / close) are wired in `_renderLinesFloat`, because
+        // they live in the floating veil, not in this list.
+        for (const button of this._content.querySelectorAll('[data-lines]')) {
+            button.addEventListener('click', async () => {
+                const result = await this.lines.show(button.dataset.lines);
+                if (result && result.ok === false) this._setStatus(result.message, 'error');
+            });
+        }
     }
 
     /**
@@ -668,6 +736,7 @@ function renderPackage(mod, { byId, shadows, expanded, rank, total, explicit, mo
         '<div class="mods-row-actions">' +
         `<button type="button" class="sim-btn sim-btn-small" data-toggle="${escapeText(mod.id)}" data-enabled="${mod.enabled === false ? '1' : '0'}">` +
         `${mod.enabled === false ? 'Enable' : 'Disable'}</button>` +
+        `<button type="button" class="sim-btn sim-btn-small" data-lines="${escapeText(mod.id)}" title="Assets: every definition this package ships, per kind, and which copy the world runs">Assets</button>` +
         `<button type="button" class="sim-btn sim-btn-small" data-files="${escapeText(mod.id)}">Files</button>` +
         '</div>' +
         '</div>';

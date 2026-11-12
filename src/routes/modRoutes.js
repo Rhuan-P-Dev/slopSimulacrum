@@ -195,6 +195,36 @@ export function register(router, { modService }) {
 	});
 
 	/**
+	 * GET /mods/:id/lines
+	 * 
+	 * The Mod Line Viewer (dev tab) reads this: for each kind the package ships,
+	 * each definition key it declares, the contributing mods that shadow it
+	 * (later in load order), the contributing mods it shadows (earlier), and
+	 * which copy the world runs. Fresh discovery, like `POST /mods/plan`. Values
+	 * are not in the answer — a line that wants the bytes of a definition reads
+	 * back through `GET /mods/:id/files`. 404 (`MOD_NOT_FOUND`) when `:id` is
+	 * not an installed package.
+	 */
+	router.get('/mods/:id/lines', (req, res) => {
+		try {
+			res.json(modService.linesForMod(req.params.id));
+		} catch (error) {
+			const status = ERROR_STATUS[error?.code];
+			if (status) {
+				sendRouteErrorBody(
+					error,
+					res,
+					'GET /mods/:id/lines',
+					{ success: false, error: error.code, message: error.message },
+					status
+				);
+				return;
+			}
+			sendRouteError(error, res, 'GET /mods/:id/lines');
+		}
+	});
+
+	/**
 	 * POST /mods/:id/enable and POST /mods/:id/disable
 	 * Ask for an installed package to be in or out of the world.
 	 *

@@ -26,6 +26,7 @@
     <link rel="stylesheet" href="css/agent-view.css">
     <link rel="stylesheet" href="css/round-prose.css">
     <link rel="stylesheet" href="css/agent-body.css">
+    <link rel="stylesheet" href="css/mod-lines.css">
     <link rel="stylesheet" href="css/system.css">
     <link rel="stylesheet" href="css/menu.css">
 </head>
@@ -411,6 +412,11 @@
             </div>
             <div id="mods-content"></div>
         </div>
+        <!-- The floating asset submenu: a semi-transparent veil that covers the
+             list when an Assets button is opened. A direct child of #mods-screen
+             (not the inner) so it is hidden with the screen; it is position:fixed,
+             so its DOM slot does not affect layout. -->
+        <div id="mods-lines-float"></div>
     </div>
 
     <!-- CARDS: the character cards on disk, as the server lists them: the art
@@ -432,6 +438,6 @@
     </div>
 
     <script src="/socket.io/socket.io.js"></script>
-    <script type="module" src="js/App.js?v=4"></script>
+    <script type="module" src="js/App.js?v=5"></script>
 </body>
 </html>
