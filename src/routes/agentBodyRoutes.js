@@ -22,6 +22,13 @@
  *         when the model's answer fails validation.
  * POST   /agent-body/create         -> { card, body, meta, organsByComponent }
  *         body: { cardId: string (1..128 chars, no extension) }
+ *         The design runs as a four-stage pipeline (concept -> anatomy ->
+ *         organs -> outfit, one LLM call each, in fresh contexts), retried per
+ *         stage; meta.stages carries one record per stage (kind, version,
+ *         model, finishReason, latencyMs, attempts, promptMessages) so the
+ *         dev panel can show what each stage said. Progress rides the
+ *         AGENT_BODY_DESIGN_STEP socket event (shared/SocketProtocol.js), one
+ *         per stage attempt.
  *         response organsByComponent: per-part organs for display only (world parts take
  *         the world recipe, new parts take the design recipe); `body` is exactly what Save posts.
  * POST   /agent-body/save           -> { saved, packageId, dir, version, content, created,
@@ -52,16 +59,18 @@
  *   503 { code: 'AGENT_BODY_CONTROLLER_NOT_WIRED' } feature not built (boot-order guard)
  *   503 { code: 'CARD_USER_RELATIONSHIP_CONTROLLER_NOT_WIRED' } judge/list not built (boot-order guard)
  *
- * Cost guard (SEC-9): at most 20 designs per minute per IP (create) — one LLM call
- * per POST, same rate-limit shape as /llm/chat. Save has its own budget (20 per
- * minute per IP) since it writes data files, though it makes no LLM call. The
- * judge route has its own budget as well (20 per minute per IP): one LLM call
- * per POST, answered by a small JSON object by contract.
+ * Cost guard (SEC-9): at most 20 designs per minute per IP (create) — a design
+ * is a four-stage pipeline (up to four LLM calls per POST, one per stage,
+ * retried on failure), same rate-limit shape as /llm/chat. Save has its own
+ * budget (20 per minute per IP) since it writes data files, though it makes no
+ * LLM call. The judge route has its own budget as well (20 per minute per IP):
+ * one LLM call per POST, answered by a small JSON object by contract.
  *
  * @module src/routes/agentBodyRoutes
  */
 
 import { CardNotFoundError, DesignValidationError, MAX_CARD_ID_LENGTH } from '../controllers/networking/AgentBodyController.js';
+import { DesignStageError } from '../controllers/networking/AgentBodyDesignPipeline.js';
 import {
 	CardNotFoundError as RelationshipCardNotFoundError,
 	CardNotReadableError,
@@ -344,6 +353,18 @@ export function register(router, { worldStateController, modService }) {
 						error: {
 							code: designError.code,
 							message: "The model's design failed validation for this card: " + designError.errors.join('; ')
+						}
+					});
+					return;
+				}
+				// The pipeline's own exhaustion of a stage's attempts: the same
+				// 422 contract (a stage that cannot be fixed is the design failing),
+				// with the step named so the operator sees WHERE it failed.
+				if (designError instanceof DesignStageError) {
+					res.status(422).json({
+						error: {
+							code: 'BODY_DESIGN_INVALID',
+							message: "The model's design failed validation for this card (stage " + designError.step + "): " + designError.errors.join('; ')
 						}
 					});
 					return;

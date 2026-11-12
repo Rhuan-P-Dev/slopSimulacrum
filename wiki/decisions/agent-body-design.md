@@ -495,3 +495,124 @@ response's `organsByComponent` maps world parts to their world recipe organs
 (`m1CentralBody -> coalGenerator`, `m1Head -> thinkCore`), new parts to design recipe
 organs (`parcelStrap -> thinkCore`), a part repeated in the tree once, inert parts
 absent (not an empty claim), frozen values, and tree key order.
+
+## Amendment - the design runs as a four-stage pipeline (kinds agent-body-{concept,anatomy,organs,outfit}, each v1.0.0)
+
+Date: 2026-11-10
+
+**What was missing.** The single design prompt (v1.6.0) asked one context to do
+four jobs at once: conceive the character, build the body tree, invent the organs
+and dress the body. The owner asked for the design to run as **multiple logical
+steps** — the LLM does one step, and with that step's output the LLM, in a
+**fresh context**, does the next, until the steps are done — and for each step to
+be visible on the frontend.
+
+**The decision.** The kind `agent-body-design` (versions 1.3.0-1.6.0) is
+replaced by a pipeline, `AgentBodyDesignPipeline` (new module next to the
+controller; the controller keeps the card read, the seam injection and the
+response shape). Four stages, in order, each one LLM call through the seam
+(B-2) in a fresh context:
+
+- `agent-body-concept` — the CONCEPTOR reads the card identity and distills the
+  seed: a `rationale` (1-3 sentences) plus a `focus` list (1-6 short phrases).
+  No body, no parts, no clothing yet.
+- `agent-body-anatomy` — the BODY DESIGNER builds the `structure` (the body
+  tree) and the `components` (the invented part recipes). Its law is the old
+  anatomy law, minus the organ freedom: a recipe may reference only WORLD
+  organs (the designer organs arrive from the next stage).
+- `agent-body-organs` — the ANATOMIST invents the NEW organs (`internalComponents`),
+  each attaching to exactly ONE of the body's INVENTED parts (an extra
+  `"component"` key in the stage answer, stripped on composition; zero organs
+  is a valid answer). The stage sees the anatomy's structure and recipes —
+  that is the only memory it carries.
+- `agent-body-outfit` — the DRESSER authors the `garments` and the `outfit`
+  wear claim (absent = the design never spoke about clothing; empty list = a
+  deliberate bare claim), reading the body tree plus the world's wearable
+  items and the garments the design proposed.
+
+Cross-stage flow is data only: each stage's USER message carries the previous
+stage's VALIDATED output, never the raw answer. The pipeline composes the four
+outputs into one design (the invented organs are appended to their part
+recipe's `internalComponents`; the attachment key does not ride into the
+world file), and the controller then re-validates the COMPOSED body
+monolithically with the same shared rules as the final safety net — a stage
+success is a claim, the validator is the fact. The monolithic rules moved out
+of the controller into a new shared module, `AgentBodyDesignRules` (same
+logic: `extractDesignJson`, tree walk, recipes, garments, outfit, organ law,
+normalization), imported by both the stage validators and that final net.
+
+**Retry discipline (E-6), per stage, `MAX_STAGE_ATTEMPTS = 3`.** A validation
+failure gets a CORRECTIVE retry: the violated rules are appended to the next
+prompt for the same stage ("YOUR PREVIOUS ANSWER FOR THIS STAGE WAS REJECTED:
+..."), no backoff — the prompt changed, so waiting buys nothing. A transient
+transport failure (timeout, 429, 5xx) gets an EXACT repeat of the same prompt
+on exponential backoff (1 s base, x2 per attempt, jittered by an injected
+`rng`, injectable so tests never sleep). A non-retryable failure (a provider
+4xx refusal) propagates as-is, exactly as the single call did (502 at the
+route). After the attempts are spent the pipeline throws `DesignStageError`
+(`DESIGN_STAGE_FAILED`, carrying `step`, `kind`, the last validation `errors`
+and `attempts`), and the controller maps it onto the same 422
+`BODY_DESIGN_INVALID` envelope the single call always returned — the client
+contract of a failed design is unchanged, and the error message now names the
+stage that gave up.
+
+**Progress on the frontend (H-6).** The pipeline reports every stage attempt
+through an injected step reporter; the server wires it to a new socket event,
+`AGENT_BODY_DESIGN_STEP` (protocol name `agent-body-design-step`), whose
+payload is `{ runId, cardId, step, stepNumber, totalSteps, attempt,
+maxAttempts, status, error? }`. Every design run gets a fresh `runId`
+(a randomUUID): the panel keeps only the events of the card it is designing
+and correlates them on the `runId` (adopt the first one it sees, drop the
+rest), so a second, concurrent design for the same card can never interleave
+in the stage list. The stage count comes from the event's `totalSteps`,
+never a hardcoded four. A `retrying` report names the ACTUAL previous
+failure: a validation failure quotes the violated rules, a transport failure
+quotes the seam error and its HTTP status. The response's `meta` changes
+shape accordingly: `meta = { kind: 'agent-body-design-pipeline', stages:
+[ { step, kind, version, model, finishReason, latencyMs, attempts,
+promptMessages } x 4 ] }` — each stage reports the model its call actually
+resolved to (falling back to the configured default) and keeps the full
+prompt capture (system + user, as sent) that the single `meta.prompt` always
+promised, now per stage. The `organsByComponent` display field and the save
+contract are untouched.
+
+**Cost guard.** The one 10x budget becomes four named per-stage budgets,
+multipliers of `LLM_DEFAULT_MAX_TOKENS` (2048): concept 2x (4096), anatomy
+10x (20480 — still the heavy stage, it carries the world vocabulary), organs
+4x (8192), outfit 6x (12288). The worst case costs more than the old single
+call (four round trips instead of one); a stage that answers right the first
+time costs far less on the anatomy share, and every stage's failure is
+localized to that stage's 3 attempts instead of burning the whole design.
+
+**What this does not change.** The dev tab, the route surface (`POST
+/agent-body/create` still answers `{ card, body, meta, organsByComponent }`),
+the 422/404/502 error contract, and the save: `/agent-body/save` still posts
+the composed `body` and writes one new `body-<slug>` package, never `core-*`,
+never touches `loadorder.json`, never applies (`appliesVia: "POST /mods/apply"`).
+The world data is still read-only to the design, and the organ law is
+unchanged: a designer organ is a static claim over the closed vocabulary.
+
+**Rejected.** Running the four jobs in one context anyway (the owner asked for
+fresh contexts per step, and one 20k-token context is exactly where the old
+prompt degraded — an anatomy mistake buried the organ work deep in the
+conversation). Parallelizing the stages (they form a dependency chain: the
+anatomy needs the concept, the organs need the anatomy, the outfit needs the
+body). A pipeline that re-validates each stage against the OTHER stages' laws
+(each stage validates its own slice only; the composed body gets the
+monolithic re-validation — the stages are separated, the body is not).
+
+**Verified.** `npm run check` (lint + language guard + full suite).
+`test/unit/AgentBodyController.test.js` (the `designBody` suite rewritten for
+the pipeline): the happy path with the per-stage `meta` (kinds, versions,
+attempts, prompt captures, per-stage token budgets); each stage's prompt law
+(the organ law in the organs prompt, the wear facts in the outfit prompt, the
+mount-mark wording in the anatomy prompt); the corrective retry (violated
+rules in the next prompt, no backoff); the transport retry (exponential
+backoff on an injected rng, the same prompt re-sent); the non-retryable
+propagation (no retry, the seam error untouched); a stage that gives up after
+its 3 attempts for every law (non-JSON answer, array answer, unknown component,
+bad fractions, unknown organ, organ attached to a world part, unattached organ,
+organ name collision, out-of-vocabulary grant, inert organ, per-turn effect on
+a designer organ, empty or missing focus, node cap, bad slot, recipe name
+collision, garment and outfit violations); the composed body's monolithic
+re-validation; and the card fallback identity.

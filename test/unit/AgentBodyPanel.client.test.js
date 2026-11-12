@@ -175,3 +175,126 @@ describe('AgentBodyPanel.save (what Save posts)', () => {
         expect(panel._saveInFlight).toBe(false);
     });
 });
+
+// ================================================================
+// The live stage list: the owner's ask is that every step of the
+// design pipeline is visible on the frontend. The server reports one
+// AGENT_BODY_DESIGN_STEP socket event per stage attempt; the panel
+// filters by the card it is designing and renders the run.
+describe('AgentBodyPanel stage list (the four pipeline stages, visible on the frontend)', () => {
+    /**
+     * A panel that is designing `cardId`, with a body element stubbed
+     * (the panel needs only the `innerHTML` sink for the stage list).
+     * @param {string} cardId
+     * @returns {AgentBodyPanel}
+     */
+    function panelDesigning(cardId) {
+        const panel = new AgentBodyPanel();
+        panel._body = { innerHTML: '' };
+        panel._designingCardId = cardId;
+        panel._designEvents = [];
+        return panel;
+    }
+
+    it('renders one row per reported stage; the last attempt per stage wins', () => {
+        const panel = panelDesigning('nova');
+        const step = (n, stepName, status, extra = {}) => panel.onDesignStep({
+            runId: 'r1',
+            cardId: 'nova',
+            step: stepName,
+            stepNumber: n,
+            totalSteps: 4,
+            attempt: 1,
+            maxAttempts: 3,
+            status,
+            ...extra
+        });
+        step(1, 'concept', 'started');
+        step(2, 'anatomy', 'started');
+        step(1, 'concept', 'retrying', { attempt: 1, error: '"rationale" must be a non-empty string' });
+        step(1, 'concept', 'succeeded', { attempt: 2, latencyMs: 340 });
+        step(2, 'anatomy', 'succeeded', { latencyMs: 512 });
+        step(3, 'organs', 'started');
+        step(3, 'organs', 'retrying', { attempt: 2, error: 'grants no stat and marks no flag' });
+        step(3, 'organs', 'failed', { attempt: 3, error: 'stage "organs" gave up: grants no stat and marks no flag' });
+
+        const html = panel._body.innerHTML;
+        expect(html, 'the section names the card being designed').toContain('Design stages — nova');
+        expect(html, 'the corrected stage shows its final attempt').toContain('1. <strong>concept</strong> ✓ 2 attempt(s), 340 ms');
+        expect(html, 'the one-shot stage shows its single attempt').toContain('2. <strong>anatomy</strong> ✓ 1 attempt(s), 512 ms');
+        expect(html, 'a failed stage says where it stopped and why').toContain(
+            '3. <strong>organs</strong> ✗ after 3 attempt(s) — stage &quot;organs&quot; gave up: grants no stat and marks no flag'
+        );
+        expect(html, 'a stage the run never reached is not shown as waiting after it stopped')
+            .not.toContain('outfit');
+    });
+
+    it('shows the not-yet-reached stages as waiting while the run is in flight', () => {
+        const panel = panelDesigning('nova');
+        panel.onDesignStep({
+            runId: 'r2', cardId: 'nova', step: 'concept', stepNumber: 1,
+            totalSteps: 4, attempt: 1, maxAttempts: 3, status: 'started'
+        });
+        const html = panel._body.innerHTML;
+        expect(html, 'the running stage shows its attempt').toContain('1. <strong>concept</strong> → attempt 1/3');
+        expect(html, 'later stages wait in order').toContain('… waiting');
+    });
+
+    it('drops stage events from another card (a design started elsewhere)', () => {
+        const panel = panelDesigning('nova');
+        panel.onDesignStep({
+            runId: 'r3', cardId: 'nova', step: 'concept', stepNumber: 1,
+            totalSteps: 4, attempt: 1, maxAttempts: 3, status: 'started'
+        });
+        const before = panel._body.innerHTML;
+        panel.onDesignStep({
+            runId: 'r9', cardId: 'quiet', step: 'outfit', stepNumber: 4,
+            totalSteps: 4, attempt: 1, maxAttempts: 3, status: 'started'
+        });
+        expect(panel._designEvents, 'the foreign event is not stored').toHaveLength(1);
+        expect(panel._body.innerHTML, 'the list is untouched').toBe(before);
+    });
+
+    it('drops same-card events from a different run (run correlation; a second design for the same card cannot interleave)', () => {
+        const panel = panelDesigning('nova');
+        // First design (run r1) is in flight and reporting.
+        panel.onDesignStep({
+            runId: 'r1', cardId: 'nova', step: 'concept', stepNumber: 1,
+            totalSteps: 4, attempt: 1, maxAttempts: 3, status: 'started'
+        });
+        const before = panel._body.innerHTML;
+        // A second-run event for the same card (run r9) must not interleave, even
+        // though the cardId filter on its own would accept it.
+        panel.onDesignStep({
+            runId: 'r9', cardId: 'nova', step: 'outfit', stepNumber: 4,
+            totalSteps: 4, attempt: 1, maxAttempts: 3, status: 'started'
+        });
+        expect(panel._designEvents, 'the out-of-run event is not stored').toHaveLength(1);
+        expect(panel._body.innerHTML, 'the list keeps only the r1 row').toBe(before);
+    });
+
+    it('shows the final per-stage LLM call records (meta.stages) after a completed design', () => {
+        const panel = panelDesigning('nova');
+        panel._render({
+            card: { cardId: 'nova', name: 'Nova', description: '', personality: '' },
+            body: designFixture(),
+            meta: {
+                kind: 'agent-body-design-pipeline',
+                stages: [
+                    { step: 'concept', kind: 'agent-body-concept', version: '1.0.0', model: 'test-model', finishReason: 'stop', latencyMs: 340, attempts: 2, promptMessages: [{ role: 'system', content: 'concept system prompt' }, { role: 'user', content: 'concept user prompt' }] },
+                    { step: 'anatomy', kind: 'agent-body-anatomy', version: '1.0.0', model: 'test-model', finishReason: 'stop', latencyMs: 512, attempts: 1, promptMessages: [] },
+                    { step: 'organs', kind: 'agent-body-organs', version: '1.0.0', model: 'test-model', finishReason: 'stop', latencyMs: 90, attempts: 1, promptMessages: [] },
+                    { step: 'outfit', kind: 'agent-body-outfit', version: '1.0.0', model: 'test-model', finishReason: 'stop', latencyMs: 120, attempts: 1, promptMessages: [] }
+                ]
+            },
+            organsByComponent: {}
+        });
+        const html = panel._body.innerHTML;
+        expect(html, 'the section names the four calls').toContain('LLM calls (4 stages — one call each, fresh context)');
+        expect(html).toContain('1. <strong>concept</strong> <span class="agent-body-stat">agent-body-concept v1.0.0</span>');
+        expect(html).toContain('2. <strong>anatomy</strong> <span class="agent-body-stat">agent-body-anatomy v1.0.0</span>');
+        expect(html).toContain('3. <strong>organs</strong> <span class="agent-body-stat">agent-body-organs v1.0.0</span>');
+        expect(html).toContain('4. <strong>outfit</strong> <span class="agent-body-stat">agent-body-outfit v1.0.0</span>');
+        expect(html, 'the prompt capture is shown per stage').toContain('Prompt — concept');
+    });
+});

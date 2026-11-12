@@ -116,16 +116,27 @@ class RoomNotFoundError extends GameError {
  *   - LLM_HTTP_ERROR    backend responded with a non-2xx HTTP status
  *   - LLM_PARSE_ERROR   backend response was invalid JSON or missing the expected schema
  *   - LLM_REQUEST_ERROR network-level failure (e.g. connection refused)
+ *
+ * `LLM_HTTP_ERROR` additionally carries the backend's HTTP status as `status`
+ * (narrowed at the seam, where it is known): retry discipline (CODE_RULES E-6)
+ * reads that field, never the message — 429 and 5xx are transient classes, 4xx
+ * are not, and the message is human prose, not data.
  */
 class LLMError extends GameError {
     /**
      * @param {string} message - Human-readable error message.
      * @param {string} [code] - Machine-readable error code (see above).
      * @param {Error|null} [cause] - The underlying error that caused this.
+     * @param {number|undefined} [status] - For LLM_HTTP_ERROR: the non-2xx HTTP
+     *   status the backend returned (absent for the other codes and for HTTP
+     *   errors thrown by call sites that do not see a response).
      */
-    constructor(message, code = 'LLM_REQUEST_ERROR', cause = null) {
+    constructor(message, code = 'LLM_REQUEST_ERROR', cause = null, status = undefined) {
         super(message, code, cause);
         this.name = 'LLMError';
+        if (status !== undefined) {
+            this.status = status;
+        }
     }
 }
 

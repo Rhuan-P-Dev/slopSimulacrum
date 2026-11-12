@@ -97,8 +97,10 @@
     text-overflow: ellipsis;
 }
 
-/* Scrollable result body. */
-#agent-body-overlay .agent-body-content {
+/* Scrollable result body. Keyed on the stable id, not the class: the DOM
+ * writes a transient class (agent-body-result) to this node, so a class-based
+ * selector would stop matching after the first render and drop the scroll. */
+#agent-body-overlay #agent-body-content {
     flex: 1 1 auto;
     overflow: auto;
     padding: 12px;
@@ -107,14 +109,14 @@
     font-size: 0.8em;
     line-height: 1.35;
 }
-.agent-body-content::-webkit-scrollbar {
+#agent-body-content::-webkit-scrollbar {
     width: 10px;
 }
-.agent-body-content::-webkit-scrollbar-thumb {
+#agent-body-content::-webkit-scrollbar-thumb {
     background: #333;
     border-radius: 5px;
 }
-.agent-body-content::-webkit-scrollbar-track {
+#agent-body-content::-webkit-scrollbar-track {
     background: #0a0a0a;
 }
 
@@ -197,7 +199,6 @@
 
 /* Body tree: nested divs (not <ul>) so indentation is controlled by the
    nested level itself. */
-.agent-body-tree,
 .agent-body-node {
     margin: 0;
     padding: 0;
@@ -296,4 +297,45 @@
 }
 .agent-body-details .agent-body-pre {
     max-height: 480px;
+}
+
+/* The design pipeline's stage list: one row per stage (concept, anatomy,
+   organs, outfit), live during the design run and final in the result.
+   Statuses: started (default), retrying (warning), succeeded (green),
+   failed (red), waiting (dimmed). */
+.agent-body-stages {
+    list-style: none;
+    margin: 4px 0;
+    padding: 0;
+}
+.agent-body-step {
+    padding: 4px 6px;
+    margin: 3px 0;
+    border: 1px solid #2a2a2a;
+    border-radius: 3px;
+    background: #0d0d0d;
+    color: var(--text-main, #fff);
+}
+.agent-body-step-waiting {
+    color: var(--text-dim, #777);
+    border-style: dashed;
+}
+.agent-body-step-started {
+    color: var(--neon-green, #00ff00);
+    border-color: #3a5a3a;
+}
+.agent-body-step-retrying {
+    color: var(--text-warn, #ffb000);
+    border-color: #5a4a20;
+    background: #14100a;
+}
+.agent-body-step-succeeded {
+    color: var(--neon-green, #00ff00);
+    border-color: #2a5a2a;
+    background: #0a120a;
+}
+.agent-body-step-failed {
+    color: var(--text-error, #ff4040);
+    border-color: #5a2020;
+    background: #140a0a;
 }

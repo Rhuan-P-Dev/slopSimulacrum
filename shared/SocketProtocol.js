@@ -25,4 +25,8 @@ export const SOCKET_EVENTS = {
     ROOM_CHAT_MESSAGE: 'room-chat-message',
     INCARNATE: 'incarnate',
     COMPONENT_BROKE: 'component:broke',
+    // Agent Body dev tab: one event per pipeline stage attempt (started /
+    // retrying / succeeded / failed), so the panel shows each design stage as
+    // it runs (`AgentBodyDesignPipeline` reporter -> io.emit in server.js).
+    AGENT_BODY_DESIGN_STEP: 'agent-body-design-step'
 };

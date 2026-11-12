@@ -6,8 +6,13 @@
  *   - init/show/hide/toggle/isVisible (wired by OverlayManager via App.js)
  *   - the card picker, fed by GET /agent-body/cards
  *   - the one-shot "Design body" action (POST /agent-body/create, in-flight
- *     guard), which renders the design: identity, rationale, body tree,
- *     new-component recipes, LLM call meta, and the captured prompts.
+ *     guard), which runs the server's four-stage pipeline (concept -> anatomy
+ *     -> organs -> outfit, one LLM call each) and renders the design:
+ *     identity, rationale, body tree, new-component recipes, the per-stage LLM
+ *     call meta, and the captured prompts.
+ *   - the live stage list: one AGENT_BODY_DESIGN_STEP socket event per stage
+ *     attempt (started / retrying / succeeded / failed) re-renders the list as
+ *     the design runs, including WHY a stage is trying again.
  *   - the one-shot "Save" action (POST /agent-body/save), enabled only after a
  *     design has been rendered: sends the last design's body to the server to
  *     be written as one mod package (`data/mods/body-<slug>/`). The server re-validates
@@ -45,6 +50,17 @@ export class AgentBodyPanel {
         this._status = null;
         this._body = null;
         this._inFlight = false;
+        // The card whose design is in flight (the socket's stage events are
+        // filtered by it) and the stage events it has already reported (one per
+        // pipeline stage attempt: started / retrying / succeeded / failed).
+        this._designingCardId = null;
+        this._designEvents = [];
+        // The randomUUID run the in-flight design carries; stage events are
+        // correlated on it so a second design for the same card cannot interleave.
+        this._designRunId = null;
+        // totalSteps as the pipeline reports it (default four), so the live
+        // list scales if the stage count changes.
+        this._totalSteps = null;
     }
 
     // ---------------------------------------------------------------- init
@@ -195,9 +211,17 @@ export class AgentBodyPanel {
         if (!cardId) return;
         this._inFlight = true;
         this._designButton.disabled = true;
-        this._setStatus('Designing the body for ' + cardId + ' (one LLM call — this may take a while…');
+        // A design is a pipeline of four stages, each one LLM call in a fresh
+        // context. The server reports one socket event per stage attempt;
+        // the stage list below the status line follows the run.
+        this._designingCardId = cardId;
+        this._designEvents = [];
+        this._designRunId = null;
+        this._renderStageProgress();
+        this._setStatus('Designing the body for ' + cardId + ' — four stages (concept, anatomy, organs, outfit), each one LLM call; the stage list follows below…');
         try {
             const payload = await this._postDesign(cardId);
+            this._designEvents = [];
             this._render(payload);
             this._setStatus('Design complete — pick a different card to design it again.');
         } catch (err) {
@@ -207,8 +231,50 @@ export class AgentBodyPanel {
             this._setStatus('Design failed: ' + message);
         } finally {
             this._inFlight = false;
+            this._designingCardId = null;
+            this._designRunId = null;
             this._toggleDesignEnabled();
         }
+    }
+
+    /**
+     * One pipeline stage event from the server (the AGENT_BODY_DESIGN_STEP
+     * socket event, shared/SocketProtocol.js): the stage attempt started, is
+     * retrying, succeeded, or failed. Only events for the card THIS panel is
+     * designing are kept — a design started from another window is dropped.
+     * @param {Object} event - { runId, cardId, step, stepNumber, totalSteps,
+     *   attempt, maxAttempts, status, error? }
+     */
+    onDesignStep(event) {
+        if (!event || typeof event !== 'object') return;
+        if (!this._designingCardId || event.cardId !== this._designingCardId) return;
+        // Run correlation (P2-c): the server tags each design run with a
+        // randomUUID. Adopt the first event's runId and drop any event that
+        // carries a different one, so a second (concurrent) design for the same
+        // card can never interleave in the stage list.
+        if (typeof event.runId === 'string') {
+            if (this._designRunId === null) {
+                this._designRunId = event.runId;
+            } else if (this._designRunId !== event.runId) {
+                return;
+            }
+        }
+        // Prefer the run's own reported stage count over a hardcoded 4.
+        if (typeof event.totalSteps === 'number' && event.totalSteps > 0) {
+            this._totalSteps = event.totalSteps;
+        }
+        this._designEvents.push(event);
+        this._renderStageProgress();
+    }
+
+    /**
+     * Re-render the live stage list from the reported events. The last event
+     * per step wins (a retrying/failed/succeeded overwrites the started of the
+     * same attempt chain); unreported steps wait in order.
+     */
+    _renderStageProgress() {
+        if (!this._body || !this._designingCardId) return;
+        this._body.innerHTML = this._stageProgressSection();
     }
 
     async _postDesign(cardId) {
@@ -305,8 +371,13 @@ export class AgentBodyPanel {
             : null;
         this._toggleSaveEnabled();
         if (!p) {
-            this._body.innerHTML =
-                '<div class="agent-body-placeholder">' + this._esc('Error: ' + (meta.error || 'Unable to load the design.')) + '</div>';
+            // On a failed design, keep the stage list: it says WHERE the
+            // pipeline stopped (the failing step and what the rules said).
+            let html = '<div class="agent-body-placeholder">' + this._esc('Error: ' + (meta.error || 'Unable to load the design.')) + '</div>';
+            if (this._designEvents.length > 0) {
+                html += this._stageProgressSection();
+            }
+            this._body.innerHTML = html;
             return;
         }
         const parts = [];
@@ -558,29 +629,107 @@ export class AgentBodyPanel {
         return '<div class="agent-body-recipe">' + parts.join(' ') + '</div>';
     }
 
+    /**
+     * The live stage list of the design in flight: one row per pipeline stage
+     * (concept, anatomy, organs, outfit), the last reported attempt per stage
+     * rendered with its status, the unreported ones waiting in order. Used
+     * while the design runs and on a failed design (the error placeholder is
+     * followed by the same list, so the operator sees where it stopped).
+     * @returns {string}
+     */
+    _stageProgressSection() {
+        const byStep = new Map();
+        for (const e of this._designEvents) {
+            if (e && typeof e === 'object' && e.stepNumber != null) {
+                byStep.set(e.stepNumber, e);
+            }
+        }
+        // Stage count is whatever the run reports (totalSteps, default four);
+        // while the run is in flight the list shows all of them (the unreached
+        // ones wait in order), so it never collapses when the first event lands.
+        // Once a stage has failed the run is over, and the stages it never
+        // reached are dropped — "waiting" after a failure would be a lie.
+        const stopped = [...byStep.values()].some((e) => e && e.status === 'failed');
+        const stageCount = this._totalSteps || 4;
+        const total = byStep.size > 0
+            ? Math.max(...[...byStep.keys()], stopped ? 0 : stageCount)
+            : stageCount;
+        const rows = [];
+        for (let n = 1; n <= total; n++) {
+            const e = byStep.get(n);
+            if (!e) {
+                rows.push('<li class="agent-body-step agent-body-step-waiting">' + n + '. <span class="agent-body-stat">… waiting</span></li>');
+                continue;
+            }
+            const icon = e.status === 'succeeded' ? '✓'
+                : e.status === 'failed' ? '✗'
+                : e.status === 'retrying' ? '↻'
+                : '→';
+            let detail;
+            if (e.status === 'succeeded') {
+                detail = e.attempt + ' attempt(s)' + (e.latencyMs != null ? ', ' + e.latencyMs + ' ms' : '');
+            } else if (e.status === 'failed') {
+                detail = 'after ' + e.attempt + ' attempt(s) — ' + (e.error || 'unknown failure');
+            } else if (e.status === 'retrying') {
+                detail = 'attempt ' + e.attempt + '/' + e.maxAttempts + ' — ' + (e.error || 'retrying');
+            } else {
+                detail = 'attempt ' + e.attempt + '/' + e.maxAttempts;
+            }
+            rows.push('<li class="agent-body-step agent-body-step-' + this._esc(e.status) + '">' + n + '. <strong>' + this._esc(e.step) + '</strong> ' + icon + ' ' + this._esc(detail) + '</li>');
+        }
+        return this._section('Design stages' + (this._designingCardId ? ' — ' + this._esc(this._designingCardId) : ''),
+            '<ul class="agent-body-stages">' + rows.join('') + '</ul>');
+    }
+
     _callMetaSection(meta) {
         if (!meta || typeof meta !== 'object') {
-            return this._section('LLM call (meta)', '<p class="agent-body-empty">no meta</p>');
+            return this._section('LLM calls (meta)', '<p class="agent-body-empty">no meta</p>');
         }
+        // The pipeline's per-stage records: one LLM call per stage, each in a
+        // fresh context. The rows read the same as the live stage list, but
+        // final: the last attempt's record per stage.
+        const stages = Array.isArray(meta.stages) ? meta.stages : [];
+        if (stages.length > 0) {
+            const rows = stages.map((s, i) => {
+                if (!s || typeof s !== 'object') {
+                    return '<li class="agent-body-step"><span class="agent-body-step-no">' + (i + 1) + '.</span> <span class="agent-body-error">malformed record</span></li>';
+                }
+                return '<li class="agent-body-step">' + (i + 1) + '. <strong>' + this._esc(s.step) + '</strong> ' +
+                    '<span class="agent-body-stat">' + this._esc(s.kind || '?') + ' v' + this._esc(s.version || '?') + '</span> ' +
+                    '<span class="agent-body-stat">model: ' + this._esc(s.model || '?') + '</span> ' +
+                    '<span class="agent-body-stat">finish: ' + this._esc(s.finishReason || 'n/a') + '</span> ' +
+                    '<span class="agent-body-stat">' + (s.attempts != null ? s.attempts : '?') + ' attempt(s)</span> ' +
+                    '<span class="agent-body-stat">' + (s.latencyMs != null ? s.latencyMs : '?') + ' ms</span></li>';
+            }).join('');
+            return this._section('LLM calls (' + stages.length + ' stages — one call each, fresh context)',
+                '<ul class="agent-body-stages">' + rows + '</ul>');
+        }
+        // A single-call meta (a pre-pipeline response shape, kept for safety).
         const badges = [];
         if (meta.promptKind) badges.push('<span class="agent-body-stat">kind: ' + this._esc(meta.promptKind) + '</span>');
         if (meta.promptVersion) badges.push('<span class="agent-body-stat">prompt v' + this._esc(meta.promptVersion) + '</span>');
         if (meta.model) badges.push('<span class="agent-body-stat">model: ' + this._esc(meta.model) + '</span>');
         if (meta.finishReason != null) badges.push('<span class="agent-body-stat">finish: ' + this._esc(meta.finishReason) + '</span>');
         if (meta.latencyMs != null) badges.push('<span class="agent-body-stat">latency: ' + this._esc(meta.latencyMs) + ' ms</span>');
-        return this._section('LLM call (meta)', '<div class="agent-body-badge-row">' + badges.join('') + '</div>');
+        return this._section('LLM call (meta)', '<div class="agent-body-badge-row">' + badges.join(' ') + '</div>');
     }
 
     _promptsSection(meta) {
-        const messages = (meta && Array.isArray(meta.promptMessages)) ? meta.promptMessages : [];
-        const html = messages
-            .map((m, i) => this._details(
-                'Prompt — ' + (i === 0 ? 'system' : 'user') + ' (' + String(m ? (m.content ? m.content.length : 0) : 0) + ' chars)',
-                '<pre class="agent-body-pre">' + this._esc(m && typeof m.content === 'string' ? m.content : '') + '</pre>',
-                i === 0
-            ))
-            .join('');
-        return this._section('Prompts used (agent-body-design)', html || '<p class="agent-body-empty">no prompts captured</p>');
+        // The pipeline captures two messages per stage (system + user); the
+        // later stages' user messages carry the previous stage's validated
+        // output, which is the whole point of the pipeline, so it is shown.
+        const stages = (meta && Array.isArray(meta.stages)) ? meta.stages : [];
+        if (stages.length === 0) return '';
+        return stages.map((s) => {
+            const messages = (s && Array.isArray(s.promptMessages)) ? s.promptMessages : [];
+            const inner = messages.map((m, i) => this._details(
+                (s ? s.step : 'stage') + ' — ' + (i === 0 ? 'system' : 'user') + ' (' + String(m && typeof m === 'object' && typeof m.content === 'string' ? m.content.length : 0) + ' chars)',
+                '<pre class="agent-body-pre">' + this._esc(m && typeof m === 'object' && typeof m.content === 'string' ? m.content : '') + '</pre>',
+                false
+            )).join('');
+            return this._section('Prompt — ' + this._esc(s && s.step ? s.step : 'stage'),
+                inner || '<p class="agent-body-empty">no prompts captured</p>');
+        }).join('');
     }
 
     _setStatus(text) {

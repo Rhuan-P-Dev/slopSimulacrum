@@ -342,6 +342,7 @@ class LLMController {
             content: typeof message.content === 'string' ? message.content : null,
             toolCalls,
             finishReason,
+            model: payload.model,
             message
         };
     }
@@ -405,9 +406,14 @@ class LLMController {
                 }
                 const detailSuffix = detail ? ` — ${detail}` : '';
                 Logger.error(`[LLMController] API error: ${response.status} ${response.statusText}${detailSuffix}`);
+                // The status is carried as DATA (E-6): a retry policy classifies
+                // on `err.status` (429/5xx transient, 4xx not) instead of parsing
+                // the human message for a number.
                 throw new LLMError(
                     `LLM API error: HTTP ${response.status} ${response.statusText}${detailSuffix}`,
-                    'LLM_HTTP_ERROR'
+                    'LLM_HTTP_ERROR',
+                    null,
+                    response.status
                 );
             }
 

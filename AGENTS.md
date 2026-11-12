@@ -67,8 +67,17 @@ committed file, translate it in a separate commit that touches nothing else.
 - **LLM prompt kinds** (RP-1) live in the networking controllers — each kind is a
   named decision, not an ad-hoc `fetch`: `chat` (`LLMController.chat`,
   `/llm/chat`), the NPC agent round (round runner + tool subcalls, `LLMAgentController`),
-  and `agent-body-design` (`AgentBodyController`, `/agent-body/create`, the dev tab
-  "Create Agent Body"). Design is judgment-only; the separate, explicit
+  and the agent-body design (`AgentBodyDesignPipeline` driving `AgentBodyController`,
+  `/agent-body/create`, the dev tab "Create Agent Body"): a 4-stage chain —
+  `agent-body-concept` (the character's seed: rationale + focus), `agent-body-anatomy`
+  (the body tree and the invented part recipes), `agent-body-organs` (the designer
+  organs, each attached to one invented part) and `agent-body-outfit` (the garments
+  and the wear claim). One LLM call per stage, each in a fresh context (a stage sees
+  only the previous stage's validated output), 3 attempts per stage (a failed
+  validation retries with the violated rules in the prompt; a transient transport
+  failure retries on backoff), per-stage token budgets, live progress on the socket
+  (`AGENT_BODY_DESIGN_STEP`), and the composed body re-validated monolithically before
+  it reaches the panel. Design is judgment-only; the separate, explicit
   `/agent-body/save` writes the design as **one new mod package** `body-<slug>` (slug of
   the card display name, rewritten in place, every replaced file backed up) carrying the
   kinds the design authored — `blueprints` (with the `hidesWithParent` mount mark),

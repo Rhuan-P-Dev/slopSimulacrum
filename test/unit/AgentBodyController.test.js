@@ -1,6 +1,9 @@
 /**
  * AgentBodyController — unit tests (the "Create Agent Body" dev feature,
- * Feature A).
+ * Feature A). The design runs as a four-stage pipeline (concept -> anatomy
+ * -> organs -> outfit, one LLM call each in a fresh context);
+ * `AgentBodyDesignPipeline` drives the seam, and these tests queue one answer
+ * per stage on it.
  *
  * The LLM seam is faked (TST-2 — the real provider is covered by the live
  * smoke test, not by these unit tests). Card PNGs are written to the real
@@ -21,11 +24,15 @@ import ComponentController from '../../src/controllers/core/componentController.
 import EntityController from '../../src/controllers/core/entityController.js';
 import AgentBodyController, {
     CardNotFoundError,
-    DesignValidationError,
-    PROMPT_KIND,
-    PROMPT_VERSION,
-    LLM_AGENT_BODY_MAX_TOKENS
+    DesignValidationError
 } from '../../src/controllers/networking/AgentBodyController.js';
+import AgentBodyDesignPipeline, {
+    DesignStageError,
+    STAGE_ORDER,
+    STAGE_PROMPT_KIND,
+    STAGE_PROMPT_VERSION,
+    LLM_STAGE_MAX_TOKENS
+} from '../../src/controllers/networking/AgentBodyDesignPipeline.js';
 import { LLMError } from '../../src/utils/CustomErrors.js';
 import ModPackageWriter from '../../src/services/ModPackageWriter.js';
 import { LLM_DEFAULT_TEMPERATURE } from '../../src/utils/Constants.js';
@@ -82,8 +89,11 @@ function buildCardPng(cardData) {
 }
 
 /**
- * A design object that passes every validation rule (all structure components
- * exist in the catalog; one new recipe with valid fractions and a valid organ).
+ * The anatomy stage's material: a body tree whose components all exist in the
+ * catalog, plus one new recipe with valid fractions and a valid world organ.
+ * The pipeline's per-stage fixtures are built from it (the concept's rationale
+ * is the same text; the designer organs and the clothing come from their own
+ * stages, so they are not part of this shape).
  */
 const HAPPY_BODY = {
     blueprintId: 'novaRunner',
@@ -250,12 +260,75 @@ describe('AgentBodyController', () => {
     });
 
     // ============================================================= designBody
+    //
+    // The design is a FOUR-STAGE PIPELINE: concept -> anatomy -> organs ->
+    // outfit, each one LLM call in a fresh context (the stage outputs are the
+    // only memory a stage carries). These tests drive it through the seam
+    // (TST-2): `chatFull` is queued once per stage, in order.
     describe('designBody', () => {
-        it('returns a validated design with the prompt captured in meta (happy path)', async () => {
-            fakeLlm.chatFull.mockResolvedValue({
-                content: JSON.stringify(HAPPY_BODY),
+        /**
+         * The concept stage's answer (the seed every later stage reads).
+         */
+        const NOVA_CONCEPT = {
+            rationale: 'A slim iron frame with light legs fits Nova, an errand runner: fast enough for the back alleys, sturdy enough to carry parcels.',
+            focus: ['slim iron frame', 'light legs for the alleys', 'a quiet think core']
+        };
+        /**
+         * The anatomy stage's answer: the old single-call HAPPY_BODY's tree and
+         * its one invented recipe (the recipe names only a WORLD organ here —
+         * the designer organs arrive from the organs stage).
+         */
+        const NOVA_ANATOMY = {
+            structure: HAPPY_BODY.structure,
+            components: HAPPY_BODY.components
+        };
+        /** The organs stage's zero-organ answer (a valid body runs on world organs). */
+        const NO_ORGANS = { internalComponents: [] };
+        /** The outfit stage's silent answer: the design said nothing about clothing. */
+        const NO_OUTFIT = {};
+
+        /**
+         * Queue one answer per pipeline stage (in STAGE_ORDER) on the LLM seam
+         * stub. A stage value is an object (JSON-stringified for the seam) or
+         * a raw content string (fence and garbage cases). `mockReset` first,
+         * so a short queue never leaks answers into the next test.
+         * @param {import('vitest').Mock} chatFull
+         * @param {{ concept?: object|string, anatomy?: object|string, organs?: object|string, outfit?: object|string }} stages
+         */
+        function queueDesignStages(chatFull, stages = {}) {
+            const { concept = NOVA_CONCEPT, anatomy = NOVA_ANATOMY, organs = NO_ORGANS, outfit = NO_OUTFIT } = stages;
+            chatFull.mockReset();
+            for (const stage of [concept, anatomy, organs, outfit]) {
+                chatFull.mockResolvedValueOnce({
+                    content: typeof stage === 'string' ? stage : JSON.stringify(stage),
+                    finishReason: 'stop'
+                });
+            }
+        }
+
+        /**
+         * Queue the stages BEFORE the failing one as one-shot answers, then a
+         * PERSISTENT bad answer for the failing stage itself: the stage fails
+         * on every attempt, so the pipeline gives it up (DesignStageError)
+         * without ever reaching the later stages.
+         * @param {import('vitest').Mock} chatFull
+         * @param {'concept'|'anatomy'|'organs'|'outfit'} stage - the stage that fails.
+         * @param {object|string} bad - that stage's failing answer (repeated per attempt).
+         */
+        function queueStageFailure(chatFull, stage, bad) {
+            chatFull.mockReset();
+            const answers = { concept: NOVA_CONCEPT, anatomy: NOVA_ANATOMY, organs: NO_ORGANS, outfit: NO_OUTFIT };
+            for (let i = 0; i < STAGE_ORDER.indexOf(stage); i++) {
+                chatFull.mockResolvedValueOnce({ content: JSON.stringify(answers[STAGE_ORDER[i]]), finishReason: 'stop' });
+            }
+            chatFull.mockImplementation(() => Promise.resolve({
+                content: typeof bad === 'string' ? bad : JSON.stringify(bad),
                 finishReason: 'stop'
-            });
+            }));
+        }
+
+        it('returns a validated design with the per-stage meta (happy path)', async () => {
+            queueDesignStages(fakeLlm.chatFull);
             const result = await controller.designBody(NOVA_STEM);
 
             expect(result.card).toEqual({
@@ -264,8 +337,9 @@ describe('AgentBodyController', () => {
                 description: 'A small fox-like courier droid that runs jobs across the town. Likes the smell of coal and hates the rain.',
                 personality: 'Helpful but clumsy. Asks for permission before moving other things.'
             });
+            // The body takes the card's display name, never a model-chosen id.
             expect(result.body.blueprintId).toBe('Nova');
-            expect(result.body.rationale).toBeDefined();
+            expect(result.body.rationale).toBe(NOVA_CONCEPT.rationale);
             expect(Object.isFrozen(result.body)).toBe(true);
             expect(Object.isFrozen(result.body.structure)).toBe(true);
             expect(result.body.structure.component).toBe('m1CentralBody');
@@ -279,42 +353,58 @@ describe('AgentBodyController', () => {
                 { material: 'wood', fraction: 0.4 }
             ]);
 
-            expect(result.meta.promptKind).toBe(PROMPT_KIND);
-            expect(result.meta.promptVersion).toBe(PROMPT_VERSION);
-            expect(result.meta.model).toBe('test-model');
-            expect(result.meta.finishReason).toBe('stop');
-            expect(result.meta.latencyMs).toBeGreaterThanOrEqual(0);
-            const [messages, options] = fakeLlm.chatFull.mock.calls[0];
-            expect(messages).toHaveLength(2);
-            expect(messages[0].role).toBe('system');
-            expect(messages[1].role).toBe('user');
-            // Prompt kind is named and versioned in the prompt itself (RP-2).
-            expect(messages[0].content).toContain('ANATOMY FACTS');
-            expect(messages[0].content).toContain('AVAILABLE COMPONENTS');
-            expect(messages[0].content).toContain('m1CentralBody');
-            expect(messages[1].content).toContain('Nova');
-            expect(options.temperature).toBe(LLM_DEFAULT_TEMPERATURE);
-            expect(options.max_tokens).toBe(LLM_AGENT_BODY_MAX_TOKENS);
+            // The meta is the pipeline's per-stage record: one entry per
+            // stage, in order, each naming its kind, version, model, finish
+            // reason, latency, attempts and the exact messages it sent.
+            expect(result.meta.kind).toBe('agent-body-design-pipeline');
+            expect(result.meta.stages).toHaveLength(4);
+            expect(result.meta.stages.map((s) => s.step)).toEqual(['concept', 'anatomy', 'organs', 'outfit']);
+            for (const [i, stage] of result.meta.stages.entries()) {
+                expect(stage.kind).toBe(STAGE_PROMPT_KIND[STAGE_ORDER[i]]);
+                expect(stage.version).toBe(STAGE_PROMPT_VERSION[STAGE_ORDER[i]]);
+                expect(stage.model).toBe('test-model');
+                expect(stage.finishReason).toBe('stop');
+                expect(stage.latencyMs).toBeGreaterThanOrEqual(0);
+                expect(stage.attempts).toBe(1);
+                expect(stage.promptMessages).toHaveLength(2);
+                expect(stage.promptMessages[0].role).toBe('system');
+                expect(stage.promptMessages[1].role).toBe('user');
+            }
+            // Four seam calls, one per stage, each within its own token budget.
+            const personas = { concept: 'CHARACTER CONCEPTOR', anatomy: 'BODY DESIGNER', organs: 'ANATOMIST', outfit: 'DRESSER' };
+            expect(fakeLlm.chatFull).toHaveBeenCalledTimes(4);
+            for (const [i, step] of STAGE_ORDER.entries()) {
+                const [messages, options] = fakeLlm.chatFull.mock.calls[i];
+                expect(options.temperature).toBe(LLM_DEFAULT_TEMPERATURE);
+                expect(options.max_tokens).toBe(LLM_STAGE_MAX_TOKENS[step]);
+                expect(messages[0].content, step + ' system prompt persona').toContain(personas[step]);
+            }
+            // Each stage sees only its field: the conceptor gets the card, the
+            // anatomy designer gets the world vocabulary, the later stages get
+            // the previous stage's validated output (their only memory).
+            expect(fakeLlm.chatFull.mock.calls[0][0][0].content, 'the concept system prompt').toContain('CHARACTER CONCEPTOR');
+            expect(fakeLlm.chatFull.mock.calls[0][0][1].content).toContain('Nova');
+            expect(fakeLlm.chatFull.mock.calls[1][0][0].content, 'the anatomy system prompt').toContain('ANATOMY FACTS');
+            expect(fakeLlm.chatFull.mock.calls[1][0][0].content).toContain('AVAILABLE COMPONENTS');
+            expect(fakeLlm.chatFull.mock.calls[1][0][0].content).toContain('m1CentralBody');
+            expect(fakeLlm.chatFull.mock.calls[1][0][1].content, 'anatomy sees the concept').toContain(NOVA_CONCEPT.rationale);
+            expect(fakeLlm.chatFull.mock.calls[2][0][1].content, 'organs see the anatomy').toContain('parcelStrap');
+            expect(fakeLlm.chatFull.mock.calls[3][0][1].content, 'outfit sees the anatomy').toContain('m1CentralBody');
         });
 
-        it('accepts the model output wrapped in a markdown code fence', async () => {
-            fakeLlm.chatFull.mockResolvedValue({
-                content: '```json\n' + JSON.stringify(HAPPY_BODY) + '\n```',
-                finishReason: 'complete'
+        it('accepts a stage answer wrapped in a markdown code fence', async () => {
+            queueDesignStages(fakeLlm.chatFull, {
+                concept: '```json\n' + JSON.stringify(NOVA_CONCEPT) + '\n```'
             });
             const result = await controller.designBody(NOVA_STEM);
             expect(result.body.blueprintId).toBe('Nova');
         });
 
         it('uses the card stem as fallback identity when the card has no metadata', async () => {
-            const minimalBody = {
-                blueprintId: 'quietWalker',
-                rationale: 'A modest body for a quiet character: nothing loud, nothing heavy.',
-                structure: { component: 'm1Head', slot: null, children: [] }
-            };
-            fakeLlm.chatFull.mockResolvedValue({
-                content: JSON.stringify(minimalBody),
-                finishReason: 'stop'
+            const minimalAnatomy = { structure: { component: 'm1Head', slot: null, children: [] } };
+            queueDesignStages(fakeLlm.chatFull, {
+                concept: { rationale: 'A modest body for a quiet character: nothing loud, nothing heavy.', focus: ['unremarkable frame'] },
+                anatomy: minimalAnatomy
             });
             const result = await controller.designBody(QUIET_STEM);
             expect(result.card).toMatchObject({
@@ -323,28 +413,28 @@ describe('AgentBodyController', () => {
                 description: '',
                 personality: ''
             });
-            // The most recent call is the one for this card; its prompt must
-            // note the missing fields so the model does not hallucinate a
-            // description.
-            const lastMessages = fakeLlm.chatFull.mock.calls.at(-1)[0];
-            expect(lastMessages[1].content).toContain(
-                'base the design on the name alone'
+            // The concept stage's prompt must note the missing fields so the
+            // model does not hallucinate a description.
+            const conceptMessages = fakeLlm.chatFull.mock.calls[0][0];
+            expect(conceptMessages[1].content).toContain(
+                'base the concept on the name alone'
             );
         });
 
-        it('dresses the body: a garment it invents and the outfit that wears it survive normalization', async () => {
-            const design = structuredClone(HAPPY_BODY);
-            design.garments = [{
-                name: 'courierCloak',
-                displayName: 'Ash-Cloaked Courier Mantle',
-                form: { volume: 4 },
-                materials: [{ material: 'wood', fraction: 1.0 }],
-                wear: { minVolume: 2 },
-                visual: { hue: 210, saturation: 40, lightness: 22, metalness: 0, roughness: 80 }
-            }];
-            design.outfit = [{ item: 'courierCloak', component: 'm1CentralBody' }];
-            fakeLlm.chatFull.mockResolvedValue({ content: JSON.stringify(design), finishReason: 'stop' });
-
+        it('dresses the body: the outfit stage\'s garment and outfit survive composition', async () => {
+            queueDesignStages(fakeLlm.chatFull, {
+                outfit: {
+                    garments: [{
+                        name: 'courierCloak',
+                        displayName: 'Ash-Cloaked Courier Mantle',
+                        form: { volume: 4 },
+                        materials: [{ material: 'wood', fraction: 1.0 }],
+                        wear: { minVolume: 2 },
+                        visual: { hue: 210, saturation: 40, lightness: 22, metalness: 0, roughness: 80 }
+                    }],
+                    outfit: [{ item: 'courierCloak', component: 'm1CentralBody' }]
+                }
+            });
             const result = await controller.designBody(NOVA_STEM);
 
             expect(result.body.garments).toEqual([{
@@ -358,100 +448,98 @@ describe('AgentBodyController', () => {
             expect(result.body.outfit).toEqual([{ item: 'courierCloak', component: 'm1CentralBody' }]);
         });
 
-        it('accepts a garment the world already has, and an authored EMPTY outfit', async () => {
-            const design = structuredClone(HAPPY_BODY);
-            design.outfit = [{ item: 'tshirt', component: 'm1CentralBody' }];
-            fakeLlm.chatFull.mockResolvedValue({ content: JSON.stringify(design), finishReason: 'stop' });
+        it('accepts a world item in the outfit, and an authored EMPTY outfit', async () => {
+            queueDesignStages(fakeLlm.chatFull, {
+                outfit: { outfit: [{ item: 'tshirt', component: 'm1CentralBody' }] }
+            });
             const worn = await controller.designBody(NOVA_STEM);
             expect(worn.body.outfit).toEqual([{ item: 'tshirt', component: 'm1CentralBody' }]);
 
-            // Empty is a claim; absent is not. The distinction decides at spawn whether
-            // the world's default shirt is worn (`OutfitLogic.clothedByOutfit`).
-            const naked = structuredClone(HAPPY_BODY);
-            naked.outfit = [];
-            fakeLlm.chatFull.mockResolvedValue({ content: JSON.stringify(naked), finishReason: 'stop' });
+            // Empty is a claim; absent is not. The distinction decides at spawn
+            // whether the world's default shirt is worn (`OutfitLogic.clothedByOutfit`).
+            queueDesignStages(fakeLlm.chatFull, { outfit: { outfit: [] } });
             const dressedByAnEmptyList = await controller.designBody(NOVA_STEM);
             expect(dressedByAnEmptyList.body.outfit).toEqual([]);
 
-            fakeLlm.chatFull.mockResolvedValue({ content: JSON.stringify(HAPPY_BODY), finishReason: 'stop' });
+            queueDesignStages(fakeLlm.chatFull); // the silent outfit stage (NO_OUTFIT)
             const saidNothing = await controller.designBody(NOVA_STEM);
             expect(saidNothing.body.outfit, 'a design that never spoke authors no clothing claim')
                 .toBeUndefined();
         });
 
-        it('rejects a garment that is not wearable, asks more than its own volume, or collides', async () => {
+        it('gives up an outfit stage whose garment is not wearable, asks too much, or collides', async () => {
             const cases = [
-                { garment: { name: 'noWear', form: { volume: 2 }, materials: [{ material: 'wood', fraction: 1 }] }, match: /wear\.minVolume/ },
-                { garment: { name: 'tooGreedy', form: { volume: 2 }, materials: [{ material: 'wood', fraction: 1 }], wear: { minVolume: 3 } }, match: /wear\.minVolume/ },
-                { garment: { name: 'tshirt', form: { volume: 2 }, materials: [{ material: 'wood', fraction: 1 }], wear: { minVolume: 2 } }, match: /collides with an existing item/ },
-                { garment: { name: 'badMatter', form: { volume: 2 }, materials: [{ material: 'unobtainium', fraction: 1 }], wear: { minVolume: 2 } }, match: /is not an available material/ }
+                { bad: { garments: [ { name: 'noWear', form: { volume: 2 }, materials: [ { material: 'wood', fraction: 1 } ] } ] }, match: /wear\.minVolume/ },
+                { bad: { garments: [ { name: 'tooGreedy', form: { volume: 2 }, materials: [ { material: 'wood', fraction: 1 } ], wear: { minVolume: 3 } } ] }, match: /wear\.minVolume/ },
+                { bad: { garments: [ { name: 'tshirt', form: { volume: 2 }, materials: [ { material: 'wood', fraction: 1 } ], wear: { minVolume: 2 } } ] }, match: /collides with an existing item/ },
+                { bad: { garments: [ { name: 'badMatter', form: { volume: 2 }, materials: [ { material: 'unobtainium', fraction: 1 } ], wear: { minVolume: 2 } } ] }, match: /is not an available material/ },
             ];
-            for (const { garment, match } of cases) {
-                const design = structuredClone(HAPPY_BODY);
-                design.garments = [garment];
-                fakeLlm.chatFull.mockResolvedValue({ content: JSON.stringify(design), finishReason: 'stop' });
+            for (const { bad, match } of cases) {
+                queueStageFailure(fakeLlm.chatFull, 'outfit', bad);
                 const error = await awaitThrown(controller.designBody(NOVA_STEM));
-                expect(error, garment.name).toBeInstanceOf(DesignValidationError);
+                expect(error, JSON.stringify(bad)).toBeInstanceOf(DesignStageError);
+                expect(error.code).toBe('DESIGN_STAGE_FAILED');
+                expect(error.step).toBe('outfit');
+                expect(error.attempts).toBe(3);
                 expect(error.errors.join(' ')).toMatch(match);
             }
         });
 
-        it('rejects an outfit naming a part this body does not have, or an item that cannot be worn', async () => {
-            const wrongPart = structuredClone(HAPPY_BODY);
-            wrongPart.garments = [{ name: 'cloak', form: { volume: 2 }, materials: [{ material: 'wood', fraction: 1 }], wear: { minVolume: 2 } }];
-            wrongPart.outfit = [{ item: 'cloak', component: 'maleTorso' }];
-            fakeLlm.chatFull.mockResolvedValue({ content: JSON.stringify(wrongPart), finishReason: 'stop' });
+        it('gives up an outfit naming a part this body does not have, or an item that cannot be worn', async () => {
+            queueStageFailure(fakeLlm.chatFull, 'outfit', {
+                garments: [{ name: 'cloak', form: { volume: 2 }, materials: [{ material: 'wood', fraction: 1 }], wear: { minVolume: 2 } }],
+                outfit: [{ item: 'cloak', component: 'maleTorso' }]
+            });
             const partError = await awaitThrown(controller.designBody(NOVA_STEM));
-            expect(partError).toBeInstanceOf(DesignValidationError);
+            expect(partError).toBeInstanceOf(DesignStageError);
+            expect(partError.step).toBe('outfit');
             expect(partError.errors.join(' ')).toMatch(/is not a component of this body/);
 
-            const knife = structuredClone(HAPPY_BODY);
-            knife.outfit = [{ item: 'knife', component: 'm1CentralBody' }];
-            fakeLlm.chatFull.mockResolvedValue({ content: JSON.stringify(knife), finishReason: 'stop' });
+            queueStageFailure(fakeLlm.chatFull, 'outfit', {
+                outfit: [{ item: 'knife', component: 'm1CentralBody' }]
+            });
             const itemError = await awaitThrown(controller.designBody(NOVA_STEM));
-            expect(itemError.errors.join(' ')).toMatch(/not a wearable item/);
+            expect(itemError.errors.join(' ')).toMatch(/neither a proposed garment nor a wearable item/);
         });
 
-        it('tells the model about garments, the outfit, and what the world already has to wear', async () => {
-            fakeLlm.chatFull.mockResolvedValue({ content: JSON.stringify(HAPPY_BODY), finishReason: 'stop' });
+        it('tells the outfit stage what the world already has to wear', async () => {
+            queueDesignStages(fakeLlm.chatFull);
             await controller.designBody(NOVA_STEM);
 
-            const system = fakeLlm.chatFull.mock.calls.at(-1)[0][0].content;
+            const system = fakeLlm.chatFull.mock.calls[3][0][0].content;
             expect(system).toContain('"garments"');
             expect(system).toContain('"outfit"');
             expect(system).toContain('WEARABLE ITEMS');
-            expect(system, 'the shipped t-shirt is offered by key, with the volume it needs')
-                .toMatch(/tshirt \(T-Shirt, needs 2 free volume\)/);
+            // The t-shirt ships in the world; the outfit stage must offer it by
+            // key (not by id, never by index) so the model can wear the real item
+            // or author a better one. The expectation is built from the live item
+            // registry, so a future world-data edit can't break this in vain.
+            const tshirt = controller.items['tshirt'];
+            expect(tshirt, 'the shipped t-shirt is in the world item registry').not.toBeUndefined();
+            const tshirtLine = '- ' + tshirt.name + ' (' + tshirt.displayName + ', needs ' + tshirt.minVolume + ' free volume)';
+            expect(system, 'the t-shirt is offered by key, with the volume the registry declares')
+                .toContain(tshirtLine);
             expect(system, 'a garment is not a body part, and the prompt says so')
-                .toMatch(/never a node of "structure"/);
+                .toContain('never a node of the body structure');
         });
 
-        it('states the display-name limits and the pre-answer name checklist', async () => {
-            fakeLlm.chatFull.mockResolvedValue({ content: JSON.stringify(HAPPY_BODY), finishReason: 'stop' });
+        it('states the organ law in the organs stage prompt', async () => {
+            queueDesignStages(fakeLlm.chatFull);
             await controller.designBody(NOVA_STEM);
 
-            const system = fakeLlm.chatFull.mock.calls.at(-1)[0][0].content;
-            expect(system, 'the display-name limit is said, not only enforced')
-                .toMatch(/at most 64 characters/);
-            expect(system, 'a checklist pins the model to the rules just before output format')
-                .toContain('FINAL CHECKLIST');
-            expect(system, 'a recipe organ must match a shipped organ or a same-design proposal')
-                .toContain('every string in every "internalComponents"');
-            expect(system, 'an unproposed organ needs a same-design definition')
-                .toContain('MUST also define it in the top-level "internalComponents" in the SAME design');
-            expect(system, 'the checklist names the rejection the card would get')
-                .toContain('rejects as BODY_DESIGN_INVALID');
-            const checklistIdx = system.indexOf('FINAL CHECKLIST');
-            const formatIdx = system.indexOf('OUTPUT FORMAT:');
-            expect(checklistIdx, 'the checklist exists').toBeGreaterThan(-1);
-            expect(formatIdx, 'the checklist reads after the examples and before the output-format line')
-                .toBeGreaterThan(checklistIdx);
+            const system = fakeLlm.chatFull.mock.calls[2][0][0].content;
+            expect(system).toContain('"internalComponents"');
+            expect(system, 'a designer organ is a static claim').toContain('STATIC claim');
+            expect(system, 'only the four function stats are grantable').toContain('Physical.strength');
+            expect(system, 'flags come from the world\'s closed set').toContain('conductive');
+            expect(system, 'an organ that grants nothing is rejected')
+                .toMatch(/at least one of grants \/ grantsFlags per organ/);
+            expect(system, 'a world part keeps the world\'s organs; only invented parts receive new ones')
+                .toContain("keeps the world's own organs");
         });
 
         it('reports the organs each body part carries: world parts and new parts', async () => {
-            const design = {
-                blueprintId: 'novaRunner',
-                rationale: 'a body mixing an inert part, organ-bearing world parts, and one new part with its own organ.',
+            const anatomy = {
                 structure: {
                     component: 'm1CentralBody',
                     slot: null,
@@ -472,8 +560,31 @@ describe('AgentBodyController', () => {
                     }
                 ]
             };
-            fakeLlm.chatFull.mockResolvedValue({ content: JSON.stringify(design), finishReason: 'stop' });
+            queueDesignStages(fakeLlm.chatFull, {
+                anatomy,
+                organs: {
+                    internalComponents: [{
+                        name: 'courierWeb',
+                        displayName: 'Courier Web',
+                        grants: { 'Physical.strength': 70 },
+                        grantsFlags: ['conductive'],
+                        volume: 1,
+                        component: 'parcelStrap'
+                    }]
+                }
+            });
             const result = await controller.designBody(NOVA_STEM);
+
+            // The organ the stage invented rides into the invented part's
+            // recipe (the composer's attachment) and into the design's organ list.
+            expect(result.body.internalComponents).toEqual([{
+                name: 'courierWeb',
+                displayName: 'Courier Web',
+                grants: { 'Physical.strength': 70 },
+                grantsFlags: ['conductive'],
+                volume: 1
+            }]);
+            expect(result.body.components[0].internalComponents).toEqual(['thinkCore', 'courierWeb']);
 
             const organs = result.organsByComponent;
             expect(Object.isFrozen(organs), 'the map is display context: frozen').toBe(true);
@@ -481,49 +592,16 @@ describe('AgentBodyController', () => {
             expect(organs.m1CentralBody, 'world part: its world recipe organ').toEqual(['coalGenerator']);
             expect(organs.m1Head, 'world part: its own organ').toEqual(['thinkCore']);
             expect(organs.m1Leg, 'a part that appears twice is listed once').toEqual(['moveCore']);
-            expect(organs.parcelStrap, 'new part: the design recipe organ').toEqual(['thinkCore']);
+            expect(organs.parcelStrap, 'new part: the design recipe organ plus the attached one').toEqual(['thinkCore', 'courierWeb']);
             expect('m1Toe' in organs, 'an inert part is absent, never an empty claim').toBe(false);
             expect(Object.keys(organs), 'tree order, first encounter first')
                 .toEqual(['m1CentralBody', 'parcelStrap', 'm1Leg', 'm1Head']);
         });
 
-        it('resolves a new-part organ given as { type, grants } objects to its type id', async () => {
-            const design = {
-                blueprintId: 'novaRunner',
-                rationale: 'a new part names its organ in the model-side object shape.',
-                structure: {
-                    component: 'm1CentralBody',
-                    slot: null,
-                    children: [
-                        { component: 'parcelStrap', slot: 'hand', children: [] },
-                        { component: 'm1Head', slot: null, children: [] }
-                    ]
-                },
-                components: [
-                    {
-                        name: 'parcelStrap',
-                        form: { volume: 3, position: { x: 2, y: 1 } },
-                        materials: [{ material: 'iron', fraction: 1 }],
-                        internalComponents: [{ type: 'thinkCore', grants: {} }]
-                    }
-                ]
-            };
-            fakeLlm.chatFull.mockResolvedValue({ content: JSON.stringify(design), finishReason: 'stop' });
-            const result = await controller.designBody(NOVA_STEM);
-
-            expect(result.body.components[0].internalComponents[0],
-                'the object form survives validation and normalization').toEqual({
-                type: 'thinkCore',
-                grants: {}
-            });
-            expect(result.organsByComponent.parcelStrap,
-                'the tree shows the type id, not the object').toEqual(['thinkCore']);
-        });
-
-        it('keeps what a mount declared about itself, and says nothing for a mount that did not', async () => {
-            const design = structuredClone(HAPPY_BODY);
-            design.structure.children[1].hidesWithParent = true;
-            fakeLlm.chatFull.mockResolvedValue({ content: JSON.stringify(design), finishReason: 'stop' });
+        it('keeps what an anatomy mount declared about itself, and says nothing for a mount that did not', async () => {
+            const anatomy = structuredClone(NOVA_ANATOMY);
+            anatomy.structure.children[1].hidesWithParent = true;
+            queueDesignStages(fakeLlm.chatFull, { anatomy });
 
             const result = await controller.designBody(NOVA_STEM);
 
@@ -538,22 +616,23 @@ describe('AgentBodyController', () => {
             expect(result.body.structure.hidesWithParent, 'the root authored nothing either').toBeUndefined();
         });
 
-        it('rejects a mount mark that is not a boolean', async () => {
-            const design = structuredClone(HAPPY_BODY);
-            design.structure.children[1].hidesWithParent = 'yes';
-            fakeLlm.chatFull.mockResolvedValue({ content: JSON.stringify(design), finishReason: 'stop' });
+        it('gives up an anatomy whose mount mark is not a boolean', async () => {
+            const anatomy = structuredClone(NOVA_ANATOMY);
+            anatomy.structure.children[1].hidesWithParent = 'yes';
+            queueStageFailure(fakeLlm.chatFull, 'anatomy', anatomy);
 
             const error = await awaitThrown(controller.designBody(NOVA_STEM));
 
-            expect(error).toBeInstanceOf(DesignValidationError);
+            expect(error).toBeInstanceOf(DesignStageError);
+            expect(error.step).toBe('anatomy');
             expect(error.errors.join(' ')).toMatch(/hidesWithParent/);
         });
 
-        it('says in the prompt what the mark means and where it belongs', async () => {
-            fakeLlm.chatFull.mockResolvedValue({ content: JSON.stringify(HAPPY_BODY), finishReason: 'stop' });
+        it('says in the anatomy prompt what the mark means and where it belongs', async () => {
+            queueDesignStages(fakeLlm.chatFull);
             await controller.designBody(NOVA_STEM);
 
-            const system = fakeLlm.chatFull.mock.calls.at(-1)[0][0].content;
+            const system = fakeLlm.chatFull.mock.calls[1][0][0].content;
             expect(system).toContain('"hidesWithParent"');
             expect(system, 'the model is told what the mark does to the prose')
                 .toMatch(/behind whatever covers/i);
@@ -572,255 +651,410 @@ describe('AgentBodyController', () => {
             await expect(controller.designBody(null)).rejects.toThrow(/cardId must be a string/);
         });
 
-        // ---- model-output validation failures ----
-        it('rejects when the model output is not a JSON object', async () => {
-            fakeLlm.chatFull.mockResolvedValue({
-                content: 'sorry, i cannot build bodies',
-                finishReason: 'stop'
-            });
+        // ---- stage-output validation failures (each stage gives up after its attempts) ----
+
+        it('gives up the concept stage when the model does not answer with a JSON object', async () => {
+            queueStageFailure(fakeLlm.chatFull, 'concept', 'sorry, i cannot build bodies');
             const err = await awaitThrown(controller.designBody(NOVA_STEM));
-            expect(err).toBeInstanceOf(DesignValidationError);
-            expect(err.code).toBe('BODY_DESIGN_INVALID');
-            expect(err.errors).toContain('the design was not a JSON object');
-            expect(err.message).toContain('card "nova"');
+            expect(err).toBeInstanceOf(DesignStageError);
+            expect(err.code).toBe('DESIGN_STAGE_FAILED');
+            expect(err.step).toBe('concept');
+            expect(err.errors).toContain('the model did not answer with a JSON object');
         });
 
-        it('rejects when the model output is a JSON array', async () => {
-            fakeLlm.chatFull.mockResolvedValue({ content: '[1, 2, 3]', finishReason: 'stop' });
+        it('gives up a stage whose answer is a JSON array', async () => {
+            queueStageFailure(fakeLlm.chatFull, 'concept', '[1, 2, 3]');
             await expect(controller.designBody(NOVA_STEM)).rejects.toThrow();
         });
 
-        it('rejects component nodes that are not available or proposed', async () => {
-            fakeLlm.chatFull.mockResolvedValue({
-                content: JSON.stringify({
-                    blueprintId: 'wingRunner',
-                    rationale: 'wings for flight.',
-                    structure: { component: 'wingBlade', slot: null, children: [] }
-                }),
-                finishReason: 'stop'
+        it('gives up an anatomy naming a component that is not available and not proposed', async () => {
+            queueStageFailure(fakeLlm.chatFull, 'anatomy', {
+                structure: { component: 'wingBlade', slot: null, children: [] }
             });
             const err = await awaitThrown(controller.designBody(NOVA_STEM));
+            expect(err.step).toBe('anatomy');
             expect(err.errors.some((e) => e.includes('unknown component(s) in the body tree: wingBlade'))).toBe(true);
         });
 
-        it('rejects a new recipe whose material fractions do not sum to 1.0', async () => {
-            fakeLlm.chatFull.mockResolvedValue({
-                content: JSON.stringify({
-                    blueprintId: 'strayStrap',
-                    rationale: 'one strap for one thing.',
-                    structure: { component: 'm1Head', slot: null, children: [] },
-                    components: [
-                        {
-                            name: 'badStrap',
-                            form: { volume: 3, position: { x: 1, y: 1 } },
-                            materials: [
-                                { material: 'iron', fraction: 0.5 },
-                                { material: 'wood', fraction: 0.2 }
-                            ]
-                        }
-                    ]
-                }),
-                finishReason: 'stop'
+        it('gives up an anatomy whose recipe fractions do not sum to 1.0', async () => {
+            queueStageFailure(fakeLlm.chatFull, 'anatomy', {
+                structure: { component: 'm1Head', slot: null, children: [] },
+                components: [
+                    {
+                        name: 'badStrap',
+                        form: { volume: 3, position: { x: 1, y: 1 } },
+                        materials: [
+                            { material: 'iron', fraction: 0.5 },
+                            { material: 'wood', fraction: 0.2 }
+                        ]
+                    }
+                ]
             });
             const err = await awaitThrown(controller.designBody(NOVA_STEM));
+            expect(err.step).toBe('anatomy');
             expect(err.errors.some((e) => e.includes('must sum to 1.0'))).toBe(true);
         });
 
-        it('rejects organs that are not available', async () => {
-            fakeLlm.chatFull.mockResolvedValue({
-                content: JSON.stringify({
-                    blueprintId: 'teleporter',
-                    rationale: 'instant transport.',
-                    structure: { component: 'm1Head', slot: null, children: [] },
-                    components: [
-                        {
-                            name: 'teleportCore',
-                            form: { volume: 4, position: { x: 0, y: 0 } },
-                            materials: [{ material: 'coal', fraction: 1 }],
-                            internalComponents: ['teleportOrb']
-                        }
-                    ]
-                }),
-                finishReason: 'stop'
+        it('gives up an anatomy recipe naming an organ the world does not have', async () => {
+            // The anatomy stage may reference ONLY world organs; the organs the
+            // design invents arrive from the next stage, so a made-up name here
+            // is a violation of this stage's law.
+            queueStageFailure(fakeLlm.chatFull, 'anatomy', {
+                structure: { component: 'm1Head', slot: null, children: [] },
+                components: [
+                    {
+                        name: 'teleportCore',
+                        form: { volume: 4, position: { x: 0, y: 0 } },
+                        materials: [{ material: 'coal', fraction: 1 }],
+                        internalComponents: ['teleportOrb']
+                    }
+                ]
             });
             const err = await awaitThrown(controller.designBody(NOVA_STEM));
+            expect(err.step).toBe('anatomy');
             expect(err.errors.some((e) => e.includes('teleportOrb'))).toBe(true);
         });
 
-        it('authors its own organs: a proposed organ a component references survives validation', async () => {
-            const design = structuredClone(HAPPY_BODY);
-            design.internalComponents = [{
-                name: 'courierWeb',
-                displayName: 'Courier Web',
-                grants: { 'Physical.strength': 70 },
-                grantsFlags: ['conductive'],
-                volume: 1
-            }];
-            // A component of this body names the organ the design invented.
-            design.components[0].internalComponents = ['courierWeb'];
-            fakeLlm.chatFull.mockResolvedValue({ content: JSON.stringify(design), finishReason: 'stop' });
-
-            const result = await controller.designBody(NOVA_STEM);
-
-            expect(result.body.internalComponents).toEqual([{ name: 'courierWeb', displayName: 'Courier Web', grants: { 'Physical.strength': 70 }, grantsFlags: ['conductive'], volume: 1 }]);
-            // A design that invents no organs normalizes to an empty list, not an absence:
-            // downstream code (the save) iterates it unconditionally.
-            fakeLlm.chatFull.mockResolvedValue({ content: JSON.stringify(HAPPY_BODY), finishReason: 'stop' });
-            const noOrgans = await controller.designBody(NOVA_STEM);
-            expect(noOrgans.body.internalComponents).toEqual([]);
+        it('gives up an organ that attaches to a part the anatomy did not invent', async () => {
+            queueStageFailure(fakeLlm.chatFull, 'organs', {
+                internalComponents: [{
+                    name: 'courierWeb',
+                    grants: { 'Physical.strength': 70 },
+                    volume: 1,
+                    component: 'm1Head' // a WORLD part: the design never restates a world recipe
+                }]
+            });
+            const err = await awaitThrown(controller.designBody(NOVA_STEM));
+            expect(err.step).toBe('organs');
+            expect(err.errors.join(' ')).toMatch(/not an invented part/);
         });
 
-        it('rejects a designer organ that collides with an organ the world already has', async () => {
-            const design = structuredClone(HAPPY_BODY);
-            design.internalComponents = [{ name: 'thinkCore', volume: 1, grants: { 'Mind.think_level': 5 } }];
-            fakeLlm.chatFull.mockResolvedValue({ content: JSON.stringify(design), finishReason: 'stop' });
+        it('gives up an organ that is attached to nothing (no "component")', async () => {
+            queueStageFailure(fakeLlm.chatFull, 'organs', {
+                internalComponents: [{
+                    name: 'courierWeb',
+                    grants: { 'Physical.strength': 70 },
+                    volume: 1
+                }]
+            });
             const err = await awaitThrown(controller.designBody(NOVA_STEM));
-            expect(err).toBeInstanceOf(DesignValidationError);
+            expect(err.step).toBe('organs');
+            expect(err.errors.join(' ')).toMatch(/must attach to one of the body's INVENTED PARTS/);
+        });
+
+        it('gives up a designer organ that collides with an organ the world already has', async () => {
+            queueStageFailure(fakeLlm.chatFull, 'organs', {
+                internalComponents: [{ name: 'thinkCore', volume: 1, grants: { 'Mind.think_level': 5 }, component: 'parcelStrap' }]
+            });
+            const err = await awaitThrown(controller.designBody(NOVA_STEM));
+            expect(err.step).toBe('organs');
             expect(err.errors.join(' ')).toMatch(/collides with an organ the world already has/);
         });
 
-        it('rejects a designer organ grant outside the closed function-stat vocabulary', async () => {
-            // mass is a MATTER-derived stat; an organ that granted it would give a stat a
-            // second source and break one-source-per-stat derivation.
-            const design = structuredClone(HAPPY_BODY);
-            design.internalComponents = [{ name: 'massGland', volume: 1, grants: { 'Physical.mass': 5 } }];
-            fakeLlm.chatFull.mockResolvedValue({ content: JSON.stringify(design), finishReason: 'stop' });
+        it('gives up a designer organ grant outside the closed function-stat vocabulary', async () => {
+            // mass is a MATTER-derived stat; an organ that granted it would give a
+            // stat a second source and break one-source-per-stat derivation.
+            queueStageFailure(fakeLlm.chatFull, 'organs', {
+                internalComponents: [{ name: 'massGland', volume: 1, grants: { 'Physical.mass': 5 }, component: 'parcelStrap' }]
+            });
             const err = await awaitThrown(controller.designBody(NOVA_STEM));
-            expect(err).toBeInstanceOf(DesignValidationError);
+            expect(err.step).toBe('organs');
             expect(err.errors.join(' ')).toMatch(/is not grantable by an organ/);
         });
 
-        it('rejects a designer organ that grants no stat and marks no flag (inert)', async () => {
-            const design = structuredClone(HAPPY_BODY);
-            design.internalComponents = [{ name: 'hollowShell', displayName: 'Hollow Shell', volume: 1 }];
-            fakeLlm.chatFull.mockResolvedValue({ content: JSON.stringify(design), finishReason: 'stop' });
+        it('gives up a designer organ that grants no stat and marks no flag (inert)', async () => {
+            queueStageFailure(fakeLlm.chatFull, 'organs', {
+                internalComponents: [{ name: 'hollowShell', displayName: 'Hollow Shell', volume: 1, component: 'parcelStrap' }]
+            });
             const err = await awaitThrown(controller.designBody(NOVA_STEM));
-            expect(err).toBeInstanceOf(DesignValidationError);
+            expect(err.step).toBe('organs');
             expect(err.errors.join(' ')).toMatch(/grants no stat and marks no flag/);
         });
 
-        it('rejects a designer organ that carries a per-turn effect (a designer organ is static)', async () => {
-            const design = structuredClone(HAPPY_BODY);
-            design.internalComponents = [{
-                name: 'regenNode',
-                volume: 1,
-                grants: { 'Physical.strength': 5 },
-                overTime: [{ type: 'restoreExistence', intervalTurns: 5, existenceGainPerInterval: 0.02, salvageConsumedPerInterval: 1 }]
-            }];
-            fakeLlm.chatFull.mockResolvedValue({ content: JSON.stringify(design), finishReason: 'stop' });
-            const err = await awaitThrown(controller.designBody(NOVA_STEM));
-            expect(err).toBeInstanceOf(DesignValidationError);
-            expect(err.errors.join(' ')).toMatch(/designer organ is static/);
-        });
-
-        it('says in the prompt what a designer organ is: static grants over a closed vocabulary', async () => {
-            fakeLlm.chatFull.mockResolvedValue({ content: JSON.stringify(HAPPY_BODY), finishReason: 'stop' });
-            await controller.designBody(NOVA_STEM);
-
-            const system = fakeLlm.chatFull.mock.calls.at(-1)[0][0].content;
-            expect(system).toContain('"internalComponents"');
-            expect(system, 'the organ field is named the designer\'s own organs').toContain('the designer\'s own ICs');
-            expect(system, 'only the four function stats are grantable').toContain('Physical.strength');
-            expect(system, 'flags come from the world\'s closed set').toContain('conductive');
-            expect(system, 'an organ that grants nothing is rejected').toMatch(/at least a grant or a flag/);
-        });
-
-        it('rejects a missing or empty rationale', async () => {
-            fakeLlm.chatFull.mockResolvedValue({
-                content: JSON.stringify({
-                    blueprintId: 'noRationale',
-                    structure: { component: 'm1Head', slot: null, children: [] }
-                }),
-                finishReason: 'stop'
+        it('gives up a designer organ that carries a per-turn effect (a designer organ is static)', async () => {
+            queueStageFailure(fakeLlm.chatFull, 'organs', {
+                internalComponents: [{
+                    name: 'regenNode',
+                    volume: 1,
+                    grants: { 'Physical.strength': 5 },
+                    overTime: [{ type: 'restoreExistence', intervalTurns: 5, existenceGainPerInterval: 0.02, salvageConsumedPerInterval: 1 }],
+                    component: 'parcelStrap'
+                }]
             });
             const err = await awaitThrown(controller.designBody(NOVA_STEM));
-            expect(err.errors.some((e) => e.includes('"rationale" must be a non-empty string'))).toBe(true);
+            expect(err.step).toBe('organs');
+            expect(err.errors.join(' ')).toMatch(/designer organ is a static claim/);
         });
 
-        it('ignores the model blueprintId and names the body after the card (a model-chosen colliding id is discarded)', async () => {
-            fakeLlm.chatFull.mockResolvedValue({
-                content: JSON.stringify({
-                    blueprintId: 'm1Droid',
-                    rationale: 'a rehash.',
-                    structure: { component: 'm1Head', slot: null, children: [] }
-                }),
-                finishReason: 'stop'
-            });
-            // The model chose 'm1Droid' (an existing blueprint). That id is NOT
-            // used — designBody replaces it with the card display name ('Nova'),
-            // so there is no collision with the existing 'm1Droid' blueprint.
-            const result = await controller.designBody(NOVA_STEM);
-            expect(result.body.blueprintId).toBe('Nova');
+        it('gives up a concept with a missing or empty rationale', async () => {
+            queueStageFailure(fakeLlm.chatFull, 'concept', { focus: ['a quiet one'] });
+            const err = await awaitThrown(controller.designBody(NOVA_STEM));
+            expect(err.step).toBe('concept');
+            expect(err.errors.some((e) => e.includes('"rationale" must be a string'))).toBe(true);
         });
 
-        it('rejects trees with more than the node cap', async () => {
+        it('gives up a concept whose focus list is empty', async () => {
+            queueStageFailure(fakeLlm.chatFull, 'concept', { rationale: 'a quiet one.', focus: [] });
+            const err = await awaitThrown(controller.designBody(NOVA_STEM));
+            expect(err.step).toBe('concept');
+            expect(err.errors.some((e) => e.includes('"focus" must list at least one phrase'))).toBe(true);
+        });
+
+        it('gives up an anatomy over the node cap', async () => {
             const leaves = Array.from({ length: 17 }).map(() => ({
                 component: 'm1Head', slot: null, children: []
             }));
-            fakeLlm.chatFull.mockResolvedValue({
-                content: JSON.stringify({
-                    blueprintId: 'bigBody',
-                    rationale: 'a crowd.',
-                    structure: {
-                        component: 'm1Head',
-                        slot: null,
-                        children: leaves
-                    }
-                }),
-                finishReason: 'stop'
+            queueStageFailure(fakeLlm.chatFull, 'anatomy', {
+                structure: {
+                    component: 'm1Head',
+                    slot: null,
+                    children: leaves
+                }
             });
             const err = await awaitThrown(controller.designBody(NOVA_STEM));
+            expect(err.step).toBe('anatomy');
             expect(err.errors.some((e) => e.includes('18 nodes'))).toBe(true);
         });
 
-        it('rejects non-string body slots', async () => {
-            fakeLlm.chatFull.mockResolvedValue({
-                content: JSON.stringify({
-                    blueprintId: 'slotBug',
-                    rationale: 'slot as a number is nonsense.',
-                    structure: {
-                        component: 'm1Leg',
-                        slot: 5,
-                        children: []
-                    }
-                }),
-                finishReason: 'stop'
+        it('gives up a non-string body slot', async () => {
+            queueStageFailure(fakeLlm.chatFull, 'anatomy', {
+                structure: {
+                    component: 'm1Leg',
+                    slot: 5,
+                    children: []
+                }
             });
             const err = await awaitThrown(controller.designBody(NOVA_STEM));
+            expect(err.step).toBe('anatomy');
             expect(err.errors.some((e) => e.includes('body-tree slot must be null or a non-empty string'))).toBe(true);
         });
 
-        it('rejects when a new recipe name collides with an existing component', async () => {
-            fakeLlm.chatFull.mockResolvedValue({
-                content: JSON.stringify({
-                    blueprintId: 'reuseBug',
-                    rationale: 'stealing a name.',
-                    structure: { component: 'm1Head', slot: null, children: [] },
-                    components: [
-                        {
-                            name: 'm1Head',
-                            form: { volume: 3, position: { x: 1, y: 1 } },
-                            materials: [{ material: 'iron', fraction: 1 }]
-                        }
-                    ]
-                }),
-                finishReason: 'stop'
+        it('gives up a recipe name that collides with an existing component', async () => {
+            queueStageFailure(fakeLlm.chatFull, 'anatomy', {
+                structure: { component: 'm1Head', slot: null, children: [] },
+                components: [
+                    {
+                        name: 'm1Head',
+                        form: { volume: 3, position: { x: 1, y: 1 } },
+                        materials: [{ material: 'iron', fraction: 1 }]
+                    }
+                ]
             });
             const err = await awaitThrown(controller.designBody(NOVA_STEM));
+            expect(err.step).toBe('anatomy');
             expect(err.errors.some((e) => e.includes('collides with an existing or previously proposed component'))).toBe(true);
         });
 
-        it('propagates LLMError through unchanged (timeout class)', async () => {
+        // ---- the retry discipline (E-6), driven through an injected pipeline ----
+
+        it('retries a failed validation with the violated rules in the next prompt (corrective retry)', async () => {
+            const fakeSleep = vi.fn().mockResolvedValue(undefined);
+            const pipeline = new AgentBodyDesignPipeline({
+                vocabulary: {
+                    components: controller.components,
+                    materials: controller.materials,
+                    organs: controller.organs,
+                    items: controller.items,
+                    blueprints: controller.existingBlueprints
+                },
+                llmController: fakeLlm,
+                sleep: fakeSleep
+            });
+            const injected = new AgentBodyController({ llmController: fakeLlm, pipeline });
+
+            // First concept attempt fails validation (empty rationale); the
+            // corrected second one passes. A corrective retry carries the
+            // violated rules into the next prompt, so there is no backoff.
+            fakeLlm.chatFull.mockReset();
+            fakeLlm.chatFull
+                .mockResolvedValueOnce({ content: JSON.stringify({ focus: ['a quiet one'] }), finishReason: 'stop' })
+                .mockResolvedValueOnce({ content: JSON.stringify(NOVA_CONCEPT), finishReason: 'stop' })
+                .mockResolvedValueOnce({ content: JSON.stringify(NOVA_ANATOMY), finishReason: 'stop' })
+                .mockResolvedValueOnce({ content: JSON.stringify(NO_ORGANS), finishReason: 'stop' })
+                .mockResolvedValueOnce({ content: JSON.stringify(NO_OUTFIT), finishReason: 'stop' });
+
+            const result = await injected.designBody(NOVA_STEM);
+
+            expect(result.body.blueprintId).toBe('Nova');
+            expect(result.meta.stages[0].attempts).toBe(2);
+            const secondConcept = fakeLlm.chatFull.mock.calls[1][0];
+            expect(secondConcept[1].content, 'the violated rule rides into the corrective retry')
+                .toContain('YOUR PREVIOUS ANSWER FOR THIS STAGE WAS REJECTED');
+            expect(secondConcept[1].content).toContain('"rationale" must be a string');
+            // A corrective retry waits for nothing: the prompt changed.
+            expect(fakeSleep).not.toHaveBeenCalled();
+        });
+
+        it('retries a transient transport failure with exponential backoff, then the same prompt', async () => {
+            const delays = [];
+            const pipeline = new AgentBodyDesignPipeline({
+                vocabulary: {
+                    components: controller.components,
+                    materials: controller.materials,
+                    organs: controller.organs,
+                    items: controller.items,
+                    blueprints: controller.existingBlueprints
+                },
+                llmController: fakeLlm,
+                sleep: (ms) => { delays.push(ms); return Promise.resolve(); },
+                rng: () => 0.5
+            });
+            const injected = new AgentBodyController({ llmController: fakeLlm, pipeline });
+
+            // Two timeouts, then success: transient failures get a backoff
+            // (base 1000ms, doubling, jitter 0.75 at rng 0.5) and the SAME
+            // prompt again — nothing in it changed.
+            fakeLlm.chatFull.mockReset();
+            fakeLlm.chatFull
+                .mockRejectedValueOnce(new LLMError('LLM request timed out', 'LLM_TIMEOUT'))
+                .mockRejectedValueOnce(new LLMError('LLM request timed out', 'LLM_TIMEOUT'))
+                .mockResolvedValueOnce({ content: JSON.stringify(NOVA_CONCEPT), finishReason: 'stop' })
+                .mockResolvedValueOnce({ content: JSON.stringify(NOVA_ANATOMY), finishReason: 'stop' })
+                .mockResolvedValueOnce({ content: JSON.stringify(NO_ORGANS), finishReason: 'stop' })
+                .mockResolvedValueOnce({ content: JSON.stringify(NO_OUTFIT), finishReason: 'stop' });
+
+            const result = await injected.designBody(NOVA_STEM);
+
+            expect(result.body.blueprintId).toBe('Nova');
+            expect(result.meta.stages[0].attempts).toBe(3);
+            expect(delays, 'two backoffs: 1000*2^0*0.75, then 1000*2^1*0.75').toEqual([750, 1500]);
+            // The repeated attempt re-sends the UNCHANGED prompt: a transport
+            // retry is the same request, not a corrected one.
+            expect(fakeLlm.chatFull.mock.calls[1][0][1].content).toBe(fakeLlm.chatFull.mock.calls[0][0][1].content);
+        });
+
+        it('propagates a non-retryable LLMError unchanged (a provider 4xx refusal is not transient)', async () => {
+            const delays = [];
+            const pipeline = new AgentBodyDesignPipeline({
+                vocabulary: {
+                    components: controller.components,
+                    materials: controller.materials,
+                    organs: controller.organs,
+                    items: controller.items,
+                    blueprints: controller.existingBlueprints
+                },
+                llmController: fakeLlm,
+                sleep: (ms) => { delays.push(ms); return Promise.resolve(); }
+            });
+            const injected = new AgentBodyController({ llmController: fakeLlm, pipeline });
+
+            fakeLlm.chatFull.mockReset();
             fakeLlm.chatFull.mockRejectedValueOnce(
-                new LLMError('LLM request timed out after 3000000ms', 'LLM_TIMEOUT')
+                Object.assign(new LLMError('LLM provider refused the request', 'LLM_HTTP_ERROR'), { status: 400 })
             );
-            const err = await awaitThrown(controller.designBody(NOVA_STEM));
+            const err = await awaitThrown(injected.designBody(NOVA_STEM));
             expect(err).toBeInstanceOf(LLMError);
-            expect(err.code).toBe('LLM_TIMEOUT');
-            // The seam error must pass through untouched (no masking).
-            expect(err.message).toBe('LLM request timed out after 3000000ms');
+            expect(err.code).toBe('LLM_HTTP_ERROR');
+            // The seam error passes through untouched (no masking), and a 4xx
+            // refusal is not retried: repeating it would change nothing.
+            expect(err.message).toBe('LLM provider refused the request');
+            expect(delays).toEqual([]);
+        });
+
+        it('reports the actual previous failure on each retry (a validation then a transport failure names transport, not the stale validation)', async () => {
+            const events = [];
+            const pipeline = new AgentBodyDesignPipeline({
+                vocabulary: {
+                    components: controller.components,
+                    materials: controller.materials,
+                    organs: controller.organs,
+                    items: controller.items,
+                    blueprints: controller.existingBlueprints
+                },
+                llmController: fakeLlm,
+                sleep: vi.fn().mockResolvedValue(undefined),
+                rng: () => 0.5,
+                reporter: (event) => { events.push(event); }
+            });
+            const injected = new AgentBodyController({ llmController: fakeLlm, pipeline });
+
+            // concept: attempt 1 fails validation (no rationale), attempt 2 times
+            // out (transport), attempt 3 succeeds. The attempt-3 "retrying" report
+            // must name the attempt-2 transport failure, not the stale
+            // attempt-1 validation errors.
+            fakeLlm.chatFull
+                .mockReset()
+                .mockResolvedValueOnce({
+                    content: JSON.stringify({ focus: ['a quiet one'] }),
+                    finishReason: 'stop'
+                })
+                .mockRejectedValueOnce(new LLMError('LLM request timed out', 'LLM_TIMEOUT'))
+                .mockResolvedValueOnce({ content: JSON.stringify(NOVA_CONCEPT), finishReason: 'stop' })
+                .mockResolvedValueOnce({ content: JSON.stringify(NOVA_ANATOMY), finishReason: 'stop' })
+                .mockResolvedValueOnce({ content: JSON.stringify(NO_ORGANS), finishReason: 'stop' })
+                .mockResolvedValueOnce({ content: JSON.stringify(NO_OUTFIT), finishReason: 'stop' });
+
+            const result = await injected.designBody(NOVA_STEM);
+            expect(result.body.blueprintId).toBe('Nova');
+            expect(result.meta.stages[0].attempts).toBe(3);
+
+            const retried = events.find((e) => e.step === 'concept' && e.attempt === 3 && e.status === 'retrying');
+            expect(retried.error, 'the attempt-3 retrying report names the real previous failure')
+                .toMatch(/transport:/);
+            expect(retried.error).not.toMatch(/validation:/);
+        });
+
+        it('states the violated rules in a validation failure event (not just a count)', async () => {
+            const events = [];
+            const pipeline = new AgentBodyDesignPipeline({
+                vocabulary: {
+                    components: controller.components,
+                    materials: controller.materials,
+                    organs: controller.organs,
+                    items: controller.items,
+                    blueprints: controller.existingBlueprints
+                },
+                llmController: fakeLlm,
+                sleep: vi.fn().mockResolvedValue(undefined),
+                rng: () => 0.5,
+                reporter: (event) => { events.push(event); }
+            });
+            const injected = new AgentBodyController({ llmController: fakeLlm, pipeline });
+
+            // Three validation failures on concept exhaust the stage.
+            fakeLlm.chatFull
+                .mockReset()
+                .mockResolvedValueOnce({ content: JSON.stringify({ focus: ['a quiet one'] }), finishReason: 'stop' })
+                .mockResolvedValueOnce({ content: JSON.stringify({ focus: ['a quiet one'] }), finishReason: 'stop' })
+                .mockResolvedValueOnce({ content: JSON.stringify({ focus: ['a quiet one'] }), finishReason: 'stop' });
+
+            await awaitThrown(injected.designBody(NOVA_STEM));
+
+            const failed = events.find((e) => e.step === 'concept' && e.status === 'failed');
+            expect(failed.error, 'the failed validation event carries the violated rule text')
+                .toMatch(/"rationale"/);
+            expect(failed.error).not.toMatch(/rule\(s\)/);
+        });
+
+        it('does not retry an LLM_HTTP_ERROR with no status (absent status = non-transient, E-6 conservative)', async () => {
+            const delays = [];
+            const pipeline = new AgentBodyDesignPipeline({
+                vocabulary: {
+                    components: controller.components,
+                    materials: controller.materials,
+                    organs: controller.organs,
+                    items: controller.items,
+                    blueprints: controller.existingBlueprints
+                },
+                llmController: fakeLlm,
+                sleep: (ms) => { delays.push(ms); return Promise.resolve(); },
+                rng: () => 0.5
+            });
+            const injected = new AgentBodyController({ llmController: fakeLlm, pipeline });
+
+            fakeLlm.chatFull
+                .mockReset()
+                .mockRejectedValueOnce(Object.assign(new LLMError('no status provided', 'LLM_HTTP_ERROR')));
+
+            const err = await awaitThrown(injected.designBody(NOVA_STEM));
+            expect(err).toBeInstanceOf(LLMError);
+            expect(err.code).toBe('LLM_HTTP_ERROR');
+            expect(err.status).toBeUndefined();
+            expect(fakeLlm.chatFull).toHaveBeenCalledTimes(1);
+            expect(delays, 'no backoff before a non-retryable transport failure').toEqual([]);
         });
     });
+
 
     describe('saveDesign (the "Save" action - writes one mod package, never the official data)', () => {
         const PACKAGE_DIR = 'data/mods/body-novarunner';

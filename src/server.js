@@ -12,6 +12,7 @@ import { buildWorldState } from './composition/WorldComposition.js';
 import SocketLifecycleController from './controllers/networking/SocketLifecycleController.js';
 import WorldStateBroadcastService from './services/WorldStateBroadcastService.js';
 import { registerRoutes } from './routes/index.js';
+import { SOCKET_EVENTS } from '../shared/SocketProtocol.js';
 import Logger from './utils/Logger.js';
 import { UniversalTickSystem } from './utils/UniversalTickSystem.js';
 import { MAX_TICKS_PER_SECOND, FORCED_SHUTDOWN_TIMEOUT_MS } from './utils/Constants.js';
@@ -94,11 +95,19 @@ worldStateController.llmAgentController = llmAgentController;
 // 7f. "Create Agent Body" (dev feature, Feature A — the new LLM prompt kind
 //     `agent-body-design`, versioned; RP-1/RP-2). Designing is judgment-only; the
 //     explicit Save writes the design as one mod package under data/mods/ and never
-//     touches the official `core-*` files (wiki/decisions/agent-body-design.md). One LLM
-//     call per design request, rate-limited in the route (SEC-9); provider
+//     touches the official `core-*` files (wiki/decisions/agent-body-design.md). A
+//     design is a four-stage pipeline (concept -> anatomy -> organs -> outfit, one
+//     LLM call each in a fresh context), rate-limited in the route (SEC-9); provider
 //     timeout is the seam's REQUEST_TIMEOUT_MS (env LLM_TIMEOUT_MS), same as
 //     /llm/chat — no second timeout knob.
-const agentBodyController = new AgentBodyController({ llmController });
+//
+//     Progress: the pipeline's reporter is wired to the AGENT_BODY_DESIGN_STEP socket
+//     event (H-6, the name lives in shared/SocketProtocol.js), one event per stage
+//     attempt, so the dev panel shows each stage as it runs.
+const agentBodyController = new AgentBodyController({
+	llmController,
+	stepReporter: (event) => io.emit(SOCKET_EVENTS.AGENT_BODY_DESIGN_STEP, event)
+});
 worldStateController.agentBodyController = agentBodyController;
 
 // 7g. "The System" (the System tab): the operator says what they want the world to

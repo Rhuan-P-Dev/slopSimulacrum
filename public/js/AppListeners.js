@@ -108,4 +108,15 @@ export function setupListeners(app) {
             ClientLogger.error('App', 'room-chat-message handler failed:', err);
         }
     });
+
+    // Feature A: agent-body design progress — one event per pipeline stage
+    // attempt (started / retrying / succeeded / failed). The panel filters by
+    // the card it is designing; a design for another card is ignored.
+    app.socket.on(SOCKET_EVENTS.AGENT_BODY_DESIGN_STEP, (event) => {
+        try {
+            app.agentBody.onDesignStep(event);
+        } catch (err) {
+            ClientLogger.error('App', 'agent-body-design-step handler failed:', err);
+        }
+    });
 }
