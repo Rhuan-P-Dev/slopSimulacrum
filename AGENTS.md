@@ -66,8 +66,12 @@ committed file, translate it in a separate commit that touches nothing else.
   `LLM_TIMEOUT_MS` (`wiki/decisions/llm-transport.md`). Do not add an SDK to "simplify" a call.
 - **LLM prompt kinds** (RP-1) live in the networking controllers — each kind is a
   named decision, not an ad-hoc `fetch`: `chat` (`LLMController.chat`,
-  `/llm/chat`), the NPC agent round (round runner + tool subcalls, `LLMAgentController`),
-  and the agent-body design (`AgentBodyDesignPipeline` driving `AgentBodyController`,
+  `/llm/chat`), the NPC agent round (round runner + tool subcalls,
+  `LLMAgentController` — kind `agent-round`, versioned `PROMPT_VERSION`; its
+  per-NPC system prompt carries a universal Purpose line, the card's objective
+  when declared, a Your-tools section, and the kind/version line —
+  `wiki/decisions/agent-system-prompt.md`), and the agent-body design
+  (`AgentBodyDesignPipeline` driving `AgentBodyController`,
   `/agent-body/create`, the dev tab "Create Agent Body"): a 4-stage chain —
   `agent-body-concept` (the character's seed: rationale + focus), `agent-body-anatomy`
   (the body tree and the invented part recipes), `agent-body-organs` (the designer
