@@ -319,12 +319,23 @@ export function buildWorldState(tickSystem = null, registryStore = null, { modLo
     // kept OUT of the broadcast subControllers map below: the static codex must
     // stay out of the full-state aggregation (same rule as craftingController /
     // roomChatController — shipping a codex in every update would bloat clients).
+    // The capability inputs: the action registry (already loaded above for the
+    // action side of the world — one load, N readers), the holdingCost model (its
+    // `equipableItems` list is the only per-item equip data the world declares),
+    // and matter derivation handed over as a FUNCTION so the codex keeps its
+    // no-controller-deps invariant. MaterialController.derive is the single
+    // derivation authority; the codex calls it on a RECIPE (pure, boot-time),
+    // never on an instance (wiki/subMDs/frontend/knowledge_viewer.md).
+    const holdingCostRegistry = store.read(REGISTRY_KINDS.HOLDING_COST);
     const knowledgeController = new KnowledgeController({
         traits: traitsRegistry,
         materials: materialsRegistry,
         propertyTraitMapping: propertyTraitMappingRegistry,
         recipes: craftingRegistry,
-        items: inventoryItemRegistry
+        items: inventoryItemRegistry,
+        actions: actionRegistry,
+        holdingCost: holdingCostRegistry,
+        deriveStats: (itemDef) => materialController.derive(itemDef)
     });
     // The `store` argument below hands each data store the LIVE registry holder
     // (identity-stable, content swapped as one step), so a mod applied at a round

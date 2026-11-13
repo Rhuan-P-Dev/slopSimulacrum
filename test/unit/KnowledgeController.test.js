@@ -15,6 +15,13 @@
  *       * item nullability/fallbacks + defensive-copy of traits (7.1.11)
  *       * the defensive-copy invariant (a returned payload is never internal
  *         state) (7.1.12)
+ *   - Item capabilities (the server-derived `capabilities` block): equip state
+ *     from the holdingCost list, capacity/footprint, the actions the item's base
+ *     stats satisfy, matter derivation when the recipe declares no traits, and the
+ *     graceful degradation when the capability inputs are absent.
+ *   - The `actions` section: every action as a row (name, description, its stat
+ *     gate normalized, the full raw definition), sorted, with the same fail-fast
+ *     validation and defensive-copy rules as the other sections.
  *
  * The fixtures mirror the real data/*.json shapes so the assertions are
  * meaningful against actual project data.
@@ -123,6 +130,47 @@ const INVENTORY_ITEMS = {
 };
 
 /**
+ * data/mods/core-actions/actions.json (subset, representative): requirements
+ * gate on STATS only — no action names an item type, which is exactly why the
+ * codex has to derive the item's stats to answer "what can it do".
+ * @type {Object}
+ */
+const ACTIONS = {
+    _comment: 'metadata key — must never surface as an action',
+    cut: {
+        description: 'Slice the target with an equipped knife.',
+        requirements: [{ trait: 'Physical', stat: 'sharpness', minValue: 20 }],
+    },
+    punch: {
+        description: 'Strike with raw strength.',
+        requirements: [{ trait: 'Physical', stat: 'strength', minValue: 15 }],
+    },
+    shootT1: {
+        description: 'Fire your T1 weapon.',
+        requirements: [{ trait: 'Physical', stat: 'existence', minValue: 0.01 }],
+    },
+    // A universal action: it declares no requirements at all.
+    touch: { description: 'Touch it.' },
+};
+
+/**
+ * data/mods/core-holding-cost/holdingCost.json (the massBurden model): its
+ * `equipableItems` list is the ONLY per-item equip data the world declares.
+ * @type {Object}
+ */
+const HOLDING_COST = { model: 'massBurden', equipableItems: ['knife', 't1'] };
+
+/**
+ * The matter→stats authority, stubbed: the codex receives it as a function, so a
+ * test can hand it any derivation without a MaterialController.
+ * @param {Object} itemDef
+ * @returns {Object}
+ */
+function deriveStats(itemDef) {
+    return { Physical: { mass: (itemDef.form?.volume ?? itemDef.volume ?? 1) * 7.8, existence: 1, sharpness: 70 } };
+}
+
+/**
  * Constructs a KnowledgeController from the full fixtures, allowing per-field
  * overrides so validation tests can corrupt a single registry in isolation.
  * @param {Object} [overrides]
@@ -135,8 +183,20 @@ function build(overrides = {}) {
         propertyTraitMapping = PROPERTY_TRAIT_MAPPING,
         recipes = CRAFTING,
         items = INVENTORY_ITEMS,
+        actions = ACTIONS,
+        holdingCost = HOLDING_COST,
+        deriveStatsFn = deriveStats,
     } = overrides;
-    return new KnowledgeController({ traits, materials, propertyTraitMapping, recipes, items });
+    return new KnowledgeController({
+        traits,
+        materials,
+        propertyTraitMapping,
+        recipes,
+        items,
+        actions,
+        holdingCost,
+        deriveStats: deriveStatsFn,
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -237,6 +297,7 @@ describe('KnowledgeController — empty fallback construction', () => {
             },
             recipes: [],
             items: [],
+            actions: [],
         });
     });
 });
@@ -412,5 +473,262 @@ describe('KnowledgeController — getKnowledge() contract', () => {
         });
         expect(k.traitStats.vocabulary.traitGroups).toEqual(Object.values(TRAIT_GROUPS));
         expect(k.traitStats.vocabulary.stats).toEqual(Object.values(STAT_NAMES));
+    });
+});
+
+// ---------------------------------------------------------------------------
+// ITEM CAPABILITIES — derived at assembly, never authored in data
+// ---------------------------------------------------------------------------
+
+describe('KnowledgeController — item capabilities (derived from the registries)', () => {
+    // A custom item registry must not carry the default recipes along: the boot
+    // cross-check rejects a recipe naming an item type the registry lacks.
+    const rows = (overrides = {}) => {
+        const input = overrides.items !== undefined && overrides.recipes === undefined
+            ? { ...overrides, recipes: {} }
+            : overrides;
+        const byType = {};
+        for (const row of build(input).getKnowledge().items) byType[row.type] = row;
+        return byType;
+    };
+
+    it('an equipable item lists every action its base stats satisfy, sorted', () => {
+        // knife declares sharpness 50 + existence 30: cut, shootT1 and the
+        // requirement-free touch all pass; punch (strength 15) does not.
+        expect(rows().knife.capabilities.actions.map((a) => a.name)).toEqual(['cut', 'shootT1', 'touch']);
+        expect(rows().knife.capabilities.actions[0].description).toBe('Slice the target with an equipped knife.');
+        // t1 declares existence only — no sharpness, so no cut (the requirement
+        // gate is ALL-present-and-met, exactly as the capability scan applies it).
+        expect(rows().t1.capabilities.actions.map((a) => a.name)).toEqual(['shootT1', 'touch']);
+    });
+
+    it('a non-equipable item enables nothing, however capable its stats look', () => {
+        const cell = rows().powerCell.capabilities;
+        expect(cell.equipable).toBe(false);
+        expect(cell.actions).toEqual([]);
+    });
+
+    it('capacity is the item volume and footprint the declared external volume', () => {
+        const cap = rows();
+        // Storing is the generic inventory rule (any item holds up to its own
+        // volume), so capacity is the volume; the footprint is what it takes on
+        // the host — the T1 holds 10 while occupying 1.
+        expect(cap.knife.capabilities.capacity).toBe(1);
+        expect(cap.knife.capabilities.footprint).toBe(1);
+        expect(cap.t1.capabilities.capacity).toBe(10);
+        expect(cap.t1.capabilities.footprint).toBe(1);
+    });
+
+    it('derives base stats from matter when the recipe declares no traits', () => {
+        const crate = rows({ items: { crate: { name: 'Crate', form: { volume: 4 }, materials: [{ material: 'iron', fraction: 1 }] } } }).crate;
+        expect(crate.capabilities.baseStats).toEqual({ Physical: { mass: 31.2, existence: 1, sharpness: 70 } });
+        expect(crate.capabilities.actions).toEqual([]); // not equipable
+    });
+
+    it('explicit recipe traits outrank matter derivation', () => {
+        // The knife fixture declares sharpness 50; the deriveStats stub would say
+        // 70. The recipe wins, mirroring the equip flow (BUG-134 seeding guard).
+        expect(rows().knife.capabilities.baseStats).toEqual({ Physical: { existence: 30, sharpness: 50 } });
+    });
+
+    it('a gate with no minValue bounds nothing: the stat only has to be present', () => {
+        // The engine's offer rule (componentCapabilityController
+        // ._checkRequirementsForHostComponent) reads `value < undefined` as false,
+        // so an unbounded requirement asks only that the stat exist. A NEGATIVE stat
+        // is where "no bound" and "a bound of 0" part company - the case that used to
+        // make the codex hide an action the world still offered.
+        const wire = rows({
+            deriveStatsFn: () => ({ Physical: { sharpness: -5, existence: 1 } }),
+            items: { wire: { name: 'Wire', form: { volume: 1 }, materials: [{ material: 'iron', fraction: 1 }] } },
+            holdingCost: { model: 'massBurden', equipableItems: ['wire'] },
+            actions: {
+                unbounded: { description: 'Needs a sharpness, any sharpness.', requirements: [{ trait: 'Physical', stat: 'sharpness' }] },
+                absent: { description: 'Needs a stat this item does not carry.', requirements: [{ trait: 'Movement', stat: 'move' }] },
+            },
+        }).wire;
+        expect(wire.capabilities.baseStats.Physical.sharpness).toBe(-5);
+        expect(wire.capabilities.actions.map((a) => a.name)).toEqual(['unbounded']);
+    });
+
+    it('keeps the existence baseline when matter derivation omits it', () => {
+        const made = rows({
+            deriveStatsFn: () => ({ Physical: { mass: 5 } }),
+            items: { wire: { name: 'Wire', form: { volume: 1 }, materials: [{ material: 'iron', fraction: 1 }] } },
+        }).wire;
+        expect(made.capabilities.baseStats.Physical.existence).toBe(1);
+    });
+
+    it('an item with no materials and no traits carries no stats', () => {
+        const bare = rows({ items: { bare: { name: 'Bare' } } }).bare;
+        expect(bare.capabilities.baseStats).toEqual({});
+        expect(bare.capabilities.actions).toEqual([]);
+    });
+
+    it('externalVolume reads form.externalVolume first (the engine footprint rule)', () => {
+        const row = rows({ items: { t1form: { name: 'T1 Form', form: { volume: 10, externalVolume: 1 } } } }).t1form;
+        expect(row.externalVolume).toBe(1);
+        expect(row.capabilities.footprint).toBe(1);
+    });
+
+    it('degrades without the capability inputs: no actions, no crash, not equipable', () => {
+        const kb = new KnowledgeController({
+            traits: TRAITS,
+            materials: MATERIALS,
+            propertyTraitMapping: PROPERTY_TRAIT_MAPPING,
+            recipes: CRAFTING,
+            items: INVENTORY_ITEMS,
+        });
+        const knife = kb.getKnowledge().items.find((i) => i.type === 'knife');
+        expect(knife.capabilities.equipable).toBe(false);
+        expect(knife.capabilities.actions).toEqual([]);
+        expect(knife.capabilities.baseStats).toEqual({ Physical: { existence: 30, sharpness: 50 } });
+    });
+
+    it('rejects a malformed actions / holdingCost registry and a non-function deriveStats', () => {
+        expect(() => build({ actions: null })).toThrow(TypeError);
+        expect(() => build({ actions: [] })).toThrow(TypeError);
+        expect(() => build({ holdingCost: 'nope' })).toThrow(TypeError);
+        expect(() => build({ deriveStatsFn: 'nope' })).toThrow(TypeError);
+    });
+
+    it('capabilities survive the defensive copy (never internal state)', () => {
+        const kb = build();
+        const first = kb.getKnowledge();
+        first.items.find((i) => i.type === 'knife').capabilities.actions.push({ name: 'invented' });
+        const second = kb.getKnowledge();
+        expect(second.items.find((i) => i.type === 'knife').capabilities.actions.map((a) => a.name))
+            .toEqual(['cut', 'shootT1', 'touch']);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// ACTIONS SECTION — every action with its stat gate
+// ---------------------------------------------------------------------------
+
+describe('KnowledgeController — actions section', () => {
+    it('lists every action sorted by name, skipping metadata and non-object entries', () => {
+        const actions = build().getKnowledge().actions;
+        expect(actions.map((a) => a.name)).toEqual(['cut', 'punch', 'shootT1', 'touch']);
+    });
+
+    it('spells out the requirement gate and carries the full raw definition', () => {
+        const [cut] = build().getKnowledge().actions.filter((a) => a.name === 'cut');
+        expect(cut.description).toBe('Slice the target with an equipped knife.');
+        expect(cut.requirements).toEqual([{ trait: 'Physical', stat: 'sharpness', minValue: 20 }]);
+        expect(cut.definition.requirements[0].minValue).toBe(20);
+    });
+
+    it('an action that declares no gate is universal (requirements [])', () => {
+        const [touch] = build().getKnowledge().actions.filter((a) => a.name === 'touch');
+        expect(touch.requirements).toEqual([]);
+    });
+
+    it('reads a lone requirement object as a one-row gate', () => {
+        const actions = build({
+            items: {},
+            recipes: {},
+            actions: { solo: { description: 'x', requirements: { trait: 'Movement', stat: 'move', minValue: 3 } } },
+        }).getKnowledge().actions;
+        expect(actions[0].requirements).toEqual([{ trait: 'Movement', stat: 'move', minValue: 3 }]);
+    });
+
+    it('explains what an action does in its summary, in the engine\'s own words', () => {
+        const actions = build({
+            items: {},
+            recipes: {},
+            actions: {
+                cut: {
+                    description: 'Slice the target.',
+                    targetingType: 'component',
+                    range: 50,
+                    prose: { verbPhrase: 'cut something', instrumental: { verb: 'cut' } },
+                    requirements: [{ trait: 'Physical', stat: 'sharpness', minValue: 20 }],
+                    consequences: [{ type: 'damageComponent', target: 'target', params: { channel: 'cut', value: ':Physical.sharpness' } }],
+                    failureConsequences: [{ type: 'log', target: 'entity', level: 'warn', message: 'too dull' }],
+                },
+            },
+        }).getKnowledge().actions;
+        const summary = actions[0].summary;
+        expect(summary.targeting).toBe('targets a component');
+        expect(summary.targetingDeclared).toBe(true);
+        expect(summary.range).toBe(50);
+        expect(summary.narration).toBe('cut something (instrumental: cut)');
+        expect(summary.effects[0].text).toBe('deals cut damage, scaled by Physical.sharpness (resolved at run time)');
+        expect(summary.effects[0].on).toBe('the target');
+        expect(summary.failureEffects[0].text).toBe('records a warn entry: too dull');
+    });
+
+    it('carries an unrecognized targeting type through the payload, raw and flagged', () => {
+        const actions = build({ items: {}, recipes: {}, actions: { whisper: { targetingType: 'psychic' } } })
+            .getKnowledge().actions;
+        expect(actions[0].summary.targeting).toBe('psychic');
+        expect(actions[0].summary.targetingDeclared).toBe(false);
+        // The raw value is also still in the definition, as always.
+        expect(actions[0].definition.targetingType).toBe('psychic');
+    });
+
+    it('summarizes a consequence-free action as empty lists, not a missing key', () => {
+        const actions = build({ items: {}, recipes: {}, actions: { plain: { description: 'x' } } })
+            .getKnowledge().actions;
+        expect(actions[0].summary.effects).toEqual([]);
+        expect(actions[0].summary.failureEffects).toEqual([]);
+        expect(actions[0].summary.targeting).toBeNull();
+        expect(actions[0].summary.narration).toBeNull();
+    });
+
+    it('nulls a missing requirement field and skips malformed gate entries', () => {
+        const actions = build({
+            items: {},
+            recipes: {},
+            actions: {
+                odd: { requirements: [{ stat: 'strength' }, { trait: 'Physical' }, null, 7, 'nope'] },
+                naked: {},
+            },
+        }).getKnowledge().actions;
+        expect(actions.find((a) => a.name === 'odd').requirements).toEqual([
+            { trait: null, stat: 'strength', minValue: null },
+            { trait: 'Physical', stat: null, minValue: null },
+        ]);
+        expect(actions.find((a) => a.name === 'naked').requirements).toEqual([]);
+        expect(actions.find((a) => a.name === 'naked').description).toBeNull();
+    });
+
+    it('degrades to an empty section when the action registry was not injected', () => {
+        const kb = new KnowledgeController({ traits: TRAITS, materials: MATERIALS, propertyTraitMapping: PROPERTY_TRAIT_MAPPING, recipes: CRAFTING, items: INVENTORY_ITEMS });
+        expect(kb.getKnowledge().actions).toEqual([]);
+    });
+
+    it('rejects an action entry that is not an object and a gate that is a scalar', () => {
+        expect(() => build({ actions: { bad: 'nope' } })).toThrow(TypeError);
+        expect(() => build({ actions: { bad: [] } })).toThrow(TypeError);
+        expect(() => build({ actions: { bad: { requirements: 5 } } })).toThrow(TypeError);
+    });
+
+    it('rejects a gate minValue that is neither absent nor a finite number', () => {
+        // `value < '20'` coerces by luck and `NaN` never passes: neither has a
+        // reading the engine could give, so the codex refuses the registry at boot.
+        expect(() => build({
+            items: {}, recipes: {},
+            actions: { bad: { requirements: [{ trait: 'Physical', stat: 'sharpness', minValue: '20' }] } },
+        })).toThrow(TypeError);
+        expect(() => build({
+            items: {}, recipes: {},
+            actions: { bad: { requirements: { trait: 'Physical', stat: 'sharpness', minValue: NaN } } },
+        })).toThrow(TypeError);
+        // Absent or null is legal: it means "no bound", not "a broken bound".
+        expect(() => build({
+            items: {}, recipes: {},
+            actions: { ok: { requirements: [{ trait: 'Physical', stat: 'sharpness', minValue: null }] } },
+        })).not.toThrow();
+    });
+
+    it('the actions section survives the defensive copy', () => {
+        const kb = build();
+        const first = kb.getKnowledge();
+        first.actions.push({ name: 'invented' });
+        first.actions[0].requirements.push({ trait: 'X', stat: 'y', minValue: 0 });
+        const second = kb.getKnowledge();
+        expect(second.actions.map((a) => a.name)).toEqual(['cut', 'punch', 'shootT1', 'touch']);
+        expect(second.actions[0].requirements).toEqual([{ trait: 'Physical', stat: 'sharpness', minValue: 20 }]);
     });
 });

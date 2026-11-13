@@ -14,10 +14,33 @@
  * the property→trait→stat derivation chain (global molds, mapping table,
  * per-material property values, the pinned vocabulary), every recipe with
  * display names resolved against the item registry, and every item type with
- * its fields. The result is a pure function of the data files: the viewer
- * deliberately does NOT compute blended/per-instance stats (that is the
- * runtime, instance-scoped job of MaterialController.derive / the trait merge,
- * wiki/subMDs/frontend/knowledge_viewer.md scope decision).
+ * its full definition: the runtime-resolved volume (the `form` object's
+ * `volume` first, then a legacy top-level `volume` — MaterialController._resolveVolume's rule),
+ * `externalVolume`, the material composition list, `traits`, and the full raw
+ * definition (deep-copied as `definition` so the viewer lists every field,
+ * including fields future mods add, with no viewer change). Materials carry
+ * their `visual` block (the look a renderer reads — the codex shows it, it
+ * never derives from it). The result is a pure function of the data files.
+ *
+ * Item CAPABILITIES (`capabilities` on each item row) — DECISION, extends the
+ * scope note that used to close this paragraph ("the viewer does not compute
+ * derived stats"). It now computes exactly ONE derived thing, at RECIPE level:
+ * the stat values the item carries before any instance exists, and the actions
+ * whose stat requirements those values satisfy. WHY: the engine never links an
+ * action to an item — `actions.json` gates on stats alone (`cut` is
+ * `Physical.sharpness >= 20`, `shootT1` is `Physical.existence >= 0.01`), and the
+ * only reason an item ever satisfies such a requirement is that equipping it
+ * seeds its matter-derived stats (HoldingCostController._seedDerivedStatsOnEquip,
+ * BUG-134). So "what can this item do" is answerable only by deriving those
+ * stats; showing anything less would hide the one mechanism the world uses.
+ * The boundary that remains: NOTHING per-instance, no wear, no live world state,
+ * no entity — `MaterialController.derive` is called on the recipe (a pure,
+ * boot-time function of the data files) through an injected function, not a
+ * controller reference. Attribution is deliberately FAITHFUL to the requirement
+ * check rather than curated: an equipable item shows every action its derived
+ * stats satisfy (so the T1 also shows `cut` — equipped, it carries sharpness
+ * 82.5, and the capability scan really does offer it). That coarseness is the
+ * engine's, not a decoration added here (wiki/subMDs/frontend/knowledge_viewer.md).
  *
  * Deliberately has NO `getAll()`: the static codex must stay out of the
  * world-state broadcast aggregation (same exclusion rule as CraftingController
@@ -30,6 +53,9 @@
 import Logger from '../../utils/Logger.js';
 import { isChunkItemType } from '../../utils/Constants.js';
 import { DEFAULT_ITEM_VOLUME } from '../../../shared/Defaults.js';
+import { getDefinitionFootprint } from '../../utils/definitionVolume.js';
+import { resolveRecipeBaseStats } from '../../utils/itemBaseStats.js';
+import { describeAction } from './actionSemantics.js';
 import {
     TRAIT_GROUPS,
     STAT_NAMES,
@@ -65,6 +91,7 @@ export function emptyKnowledgePayload() {
         },
         recipes: [],
         items: [],
+        actions: [],
     };
 }
 
@@ -98,8 +125,20 @@ class KnowledgeController {
      * @param {Object} deps.items - Raw data from data/mods/core-inventory-items/inventoryItems.json
      *   (keyed by item type) — also the cross-validation source for every
      *   recipe input/output type (fail-fast at boot, never mid-game).
+     * @param {Object} [deps.actions] - Raw data from data/mods/core-actions/actions.json
+     *   (keyed by action name): the requirement side of each item's capabilities.
+     *   Optional — absent, every item reports no enabled action (a degraded codex,
+     *   warned at boot, never a boot failure).
+     * @param {Object} [deps.holdingCost] - Raw data from
+     *   data/mods/core-holding-cost/holdingCost.json (the `massBurden` model): its
+     *   `equipableItems` list is the ONLY per-item equip data the world declares.
+     *   Optional — absent, nothing reports as equipable.
+     * @param {Function} [deps.deriveStats] - `(itemDef) => stats`, the single
+     *   matter→stats authority (`MaterialController.derive`) handed over as a
+     *   function, so this controller keeps its no-controller-deps invariant.
+     *   Optional — absent, no item reports derived stats or enabled actions.
      */
-    constructor({ traits, materials, propertyTraitMapping, recipes, items }) {
+    constructor({ traits, materials, propertyTraitMapping, recipes, items, actions, holdingCost, deriveStats }) {
         this._traits = traits;
         this._materials = materials;
         // Keep the raw value so the plain-object validator below can reject
@@ -117,6 +156,11 @@ class KnowledgeController {
             : (_rawMapping || {});
         this._recipes = recipes;
         this._items = items;
+        // Capability side inputs (optional, validated when present). Kept raw so
+        // the boot validator sees exactly what was injected.
+        this._actions = actions;
+        this._holdingCost = holdingCost;
+        this._deriveStats = deriveStats;
 
         // Fail-fast at boot (project rule §6): validate before the payload is
         // assembled so a corrupted registry can never enter the internal state.
@@ -132,13 +176,14 @@ class KnowledgeController {
             `${Object.keys(this._propertyTraitMapping).length} mappings, ` +
             `${Object.keys(this._materials).length} materials, ` +
             `${Object.keys(this._recipes).length} recipes, ` +
-            `${Object.keys(this._items).length} items`
+            `${Object.keys(this._items).length} items, ` +
+            `${Object.keys(this._actions ?? {}).length} actions`
         );
     }
 
     /**
  * Returns the full knowledge codex payload of wiki/subMDs/frontend/knowledge_viewer.md:
-     * `{ traitStats: { groups, mappings, materials, vocabulary }, recipes, items }`.
+     * `{ traitStats: { groups, mappings, materials, vocabulary }, recipes, items, actions }`.
      *
      * A FRESH DEEP COPY is returned on every call (defensive-copy rule): callers
      * (the route, the client) can never mutate controller state through it.
@@ -148,11 +193,12 @@ class KnowledgeController {
      *   traitStats: {
      *     groups: Object<string, Object<string, number>>,
      *     mappings: Array<{statKey: string, trait: string, stat: string, formula: string|null, sources: Array<{property: string, weight: number}>}>,
-     *     materials: Array<{type: string, name: string, density: number, properties: Object<string, number>}>,
+     *     materials: Array<{type: string, name: string, density: number, properties: Object<string, number>, visual: Object|null}>,
      *     vocabulary: {traitGroups: string[], stats: string[], existence: {goneAt: number, usableMin: number}}
      *   },
      *   recipes: Array<{id: string, name: string, description: string|null, inputs: Array<{type: string, quantity: number, name: string}>, outputs: Array<{type: string, quantity: number, name: string}>}>,
-     *   items: Array<{type: string, name: string, description: string|null, volume: number, externalVolume: number|null, materials: Array<{material: string, fraction: number, role: string|null}>|null, traits: Object<string, Object<string, number>>}>
+     *   items: Array<{type: string, name: string, description: string|null, volume: number, externalVolume: number|null, materials: Array<{material: string, fraction: number, role: string|null}>|null, traits: Object<string, Object<string, number>>, capabilities: {equipable: boolean, capacity: number, footprint: number, baseStats: Object<string, Object<string, number>>, actions: Array<{name: string, description: string|null}>}, definition: Object}>,
+     *   actions: Array<{name: string, description: string|null, requirements: Array<{trait: string|null, stat: string|null, minValue: number|null}>, summary: {targeting: string|null, targetingDeclared: boolean, range: number|null, narration: string|null, effects: Array<{type: string, on: string|null, text: string, described: boolean}>, failureEffects: Array<Object>}, definition: Object}>
      * }}
      */
     getKnowledge() {
@@ -191,6 +237,73 @@ class KnowledgeController {
         this._validateMaterialEntries();
         this._validateRecipeEntries();
         this._validateItemEntries();
+        this._validateActionEntries();
+        this._validateCapabilityInputs();
+    }
+
+    /**
+     * Validates the action registry entries when the registry was injected:
+     * every non-metadata entry is a plain object, and a declared `requirements`
+     * gate is an array or a single object — the two shapes the engine's own
+     * requirement check accepts, so the codex can never boot on data the runtime
+     * cannot read. A declared `minValue` must be a finite number, or absent (absent
+     * = no bound, exactly how the engine reads a gate with no threshold).
+     * Fail-fast, the same rule as the other registries (§6).
+     * @private
+     */
+    _validateActionEntries() {
+        if (this._actions === undefined) return;
+        for (const [name, entry] of Object.entries(this._actions)) {
+            if (name.startsWith('_')) continue;
+            if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+                throw new TypeError(`[KnowledgeController] Action "${name}" must be an object.`);
+            }
+            const reqs = entry.requirements;
+            if (reqs !== undefined && reqs !== null && typeof reqs !== 'object') {
+                throw new TypeError(`[KnowledgeController] Action "${name}" requirements must be an array or an object.`);
+            }
+            // A `minValue` that is neither absent nor a finite number has no reading
+            // the engine could give it (`value < '20'` coerces by luck, `NaN` never
+            // passes), so the codex refuses the registry instead of inventing one.
+            // Junk ENTRIES (null, scalars) are left to the shaper, which drops them.
+            for (const req of Array.isArray(reqs) ? reqs : (reqs ? [reqs] : [])) {
+                if (!req || typeof req !== 'object' || Array.isArray(req)) continue;
+                const min = req.minValue;
+                if (min === undefined || min === null) continue;
+                if (typeof min !== 'number' || !Number.isFinite(min)) {
+                    throw new TypeError(
+                        `[KnowledgeController] Action "${name}" requirement minValue must be a finite number or `
+                        + `absent (got ${typeof min === 'number' ? String(min) : typeof min}).`
+                    );
+                }
+            }
+        }
+    }
+
+    /**
+     * Validates the OPTIONAL capability inputs. Unlike the five core registries,
+     * these degrade rather than fail the boot: an absent input leaves the codex
+     * without capabilities (and says so once, at boot); a PRESENT one must still
+     * be a plain object (a null/array is a corrupted registry, never a "feature
+     * off" signal — same rule as the material damage-type registries).
+     * @private
+     */
+    _validateCapabilityInputs() {
+        for (const [name, value] of [['actions', this._actions], ['holdingCost', this._holdingCost]]) {
+            if (value === undefined) continue;
+            if (!value || typeof value !== 'object' || Array.isArray(value)) {
+                throw new TypeError(`[KnowledgeController] ${name} registry must be a plain object (or absent).`);
+            }
+        }
+        if (this._deriveStats !== undefined && typeof this._deriveStats !== 'function') {
+            throw new TypeError('[KnowledgeController] deriveStats must be a function (or absent).');
+        }
+        if (this._actions === undefined || this._holdingCost === undefined || this._deriveStats === undefined) {
+            Logger.warn(
+                '[KnowledgeController] capability inputs absent (actions/holdingCost/deriveStats) — '
+                + 'item rows will report no enabled actions.'
+            );
+        }
     }
 
     /**
@@ -263,6 +376,9 @@ class KnowledgeController {
             }
             if (typeof entry.properties !== 'object' || entry.properties === null || Array.isArray(entry.properties)) {
                 throw new TypeError(`Material "${id}" missing required field "properties" (object).`);
+            }
+            if (entry.visual !== undefined && (typeof entry.visual !== 'object' || entry.visual === null || Array.isArray(entry.visual))) {
+                throw new TypeError(`Material "${id}" has a non-object "visual".`);
             }
         }
     }
@@ -350,6 +466,39 @@ class KnowledgeController {
             if (entry.volume !== undefined && typeof entry.volume !== 'number') {
                 throw new TypeError(`Item "${type}" has a non-numeric "volume".`);
             }
+            // The new volume model: a `form` object carrying the volume. The
+            // runtime resolves the item volume as form.volume first, then a
+            // legacy top-level volume (MaterialController._resolveVolume) —
+            // the codex mirrors that rule, so both shapes must be well-formed.
+            if (entry.form !== undefined && (typeof entry.form !== 'object' || entry.form === null || Array.isArray(entry.form))) {
+                throw new TypeError(`Item "${type}" has a non-object "form".`);
+            }
+            if (typeof entry.form === 'object' && entry.form !== null && !Array.isArray(entry.form)
+                && entry.form.volume !== undefined && typeof entry.form.volume !== 'number') {
+                throw new TypeError(`Item "${type}" has a non-numeric "form.volume".`);
+            }
+            if (entry.externalVolume !== undefined && typeof entry.externalVolume !== 'number') {
+                throw new TypeError(`Item "${type}" has a non-numeric "externalVolume".`);
+            }
+            if (entry.visual !== undefined && (typeof entry.visual !== 'object' || entry.visual === null || Array.isArray(entry.visual))) {
+                throw new TypeError(`Item "${type}" has a non-object "visual".`);
+            }
+            if (entry.wear !== undefined && (typeof entry.wear !== 'object' || entry.wear === null || Array.isArray(entry.wear))) {
+                throw new TypeError(`Item "${type}" has a non-object "wear".`);
+            }
+            if (entry.internalComponents !== undefined) {
+                if (!Array.isArray(entry.internalComponents)) {
+                    throw new TypeError(`Item "${type}" has a non-array "internalComponents".`);
+                }
+                for (const ic of entry.internalComponents) {
+                    // Either entry form (InternalComponentController): a bare
+                    // type string or an object with a string "type".
+                    if (typeof ic === 'string') continue;
+                    if (typeof ic !== 'object' || ic === null || Array.isArray(ic) || typeof ic.type !== 'string') {
+                        throw new TypeError(`Item "${type}" has an "internalComponents" entry that is neither a string nor an object with a string "type".`);
+                    }
+                }
+            }
             if (entry.traits !== undefined && (typeof entry.traits !== 'object' || entry.traits === null || Array.isArray(entry.traits))) {
                 throw new TypeError(`Item "${type}" has a non-object "traits".`);
             }
@@ -369,6 +518,7 @@ class KnowledgeController {
      */
     _assembleKnowledge() {
         return {
+            actions: this._buildActions(),
             traitStats: {
                 groups: this._buildGroups(),
                 mappings: this._buildMappings(),
@@ -465,6 +615,9 @@ class KnowledgeController {
                 name: entry.name,
                 density: entry.density,
                 properties: structuredClone(entry.properties),
+                // The renderer's look block (MaterialRow.visual): deep-copied
+                // verbatim, null when the material declares none.
+                visual: entry.visual !== undefined ? structuredClone(entry.visual) : null,
             });
         }
         return rows.sort((a, b) => compareStrings(a.type, b.type));
@@ -537,6 +690,66 @@ class KnowledgeController {
     }
 
     /**
+     * Every action as a row, sorted by name: its description, its requirement
+     * gate (the stat checks the engine applies — the ONLY gate an action has, see
+     * the module header on capabilities), a `summary` saying what the action does
+     * (`describeAction`: targeting, narration, one sentence per consequence and
+     * per failure consequence), and the full raw definition so the viewer still
+     * lists every field — `groupPick` and anything a future mod adds included —
+     * with no viewer change (same rule as the item rows).
+     * @returns {Array<{name: string, description: string|null, requirements: Array<Object>, definition: Object}>}
+     * @private
+     */
+    _buildActions() {
+        const rows = [];
+        for (const [name, entry] of Object.entries(this._actions ?? {})) {
+            if (name.startsWith('_')) continue; // metadata keys (_comment)
+            if (!entry || typeof entry !== 'object' || Array.isArray(entry)) continue;
+            rows.push({
+                name,
+                description: typeof entry.description === 'string' && entry.description.length > 0
+                    ? entry.description
+                    : null,
+                requirements: this._buildActionRequirements(entry.requirements),
+                // What the action DOES, read from its own fields by the single
+                // interpreter (src/controllers/knowledge/actionSemantics.js): the
+                // targeting line, the narration wording, and one sentence per
+                // consequence with the party it lands on.
+                summary: describeAction(entry),
+                definition: structuredClone(entry),
+            });
+        }
+        return rows.sort((a, b) => compareStrings(a.name, b.name));
+    }
+
+    /**
+     * Normalizes one action's requirement gate to `{ trait, stat, minValue }`
+     * rows, null per missing field (the codex's nullability convention). A lone
+     * requirement object reads as a one-row list — the shape the engine's own
+     * requirement check also accepts — and an absent gate yields [] (a universal
+     * action, which any component that exists can perform).
+     * @param {Array<Object>|Object|undefined} requirements - The action's gate.
+     * @returns {Array<{trait: string|null, stat: string|null, minValue: number|null}>}
+     * @private
+     */
+    _buildActionRequirements(requirements) {
+        if (requirements === undefined || requirements === null) return [];
+        const list = Array.isArray(requirements)
+            ? requirements
+            : (typeof requirements === 'object' ? [requirements] : []);
+        const rows = [];
+        for (const req of list) {
+            if (!req || typeof req !== 'object' || Array.isArray(req)) continue;
+            rows.push({
+                trait: typeof req.trait === 'string' ? req.trait : null,
+                stat: typeof req.stat === 'string' ? req.stat : null,
+                minValue: typeof req.minValue === 'number' ? req.minValue : null,
+            });
+        }
+        return rows;
+    }
+
+    /**
      * Every item type as a row, sorted by `type`, with null/fallback
  * normalization per wiki/subMDs/frontend/knowledge_viewer.md: missing `description` →
      * null, missing `volume` → DEFAULT_ITEM_VOLUME (0), missing `externalVolume`
@@ -550,17 +763,137 @@ class KnowledgeController {
         const rows = [];
         for (const [type, entry] of Object.entries(this._items)) {
             if (type.startsWith('_')) continue; // skip metadata keys (_comment)
+            // The runtime's volume rule (MaterialController._resolveVolume):
+            // form.volume first (new model), then a legacy top-level volume,
+            // then the DEFAULT_ITEM_VOLUME fallback. The codex shows what the
+            // runtime computes — and the same number is the generic container
+            // capacity reported in `capabilities`.
+            const volume = (typeof entry.form === 'object' && entry.form !== null && !Array.isArray(entry.form) && typeof entry.form.volume === 'number')
+                ? entry.form.volume
+                : (typeof entry.volume === 'number' ? entry.volume : DEFAULT_ITEM_VOLUME);
             rows.push({
                 type,
                 name: entry.name,
                 description: entry.description ?? null,
-                volume: typeof entry.volume === 'number' ? entry.volume : DEFAULT_ITEM_VOLUME,
-                externalVolume: typeof entry.externalVolume === 'number' ? entry.externalVolume : null,
+                volume,
+                externalVolume: this._declaredExternalVolume(entry),
                 materials: this._buildItemMaterials(entry.materials),
                 traits: structuredClone(entry.traits ?? {}),
+                // What the item can do, computed from the registries (never read
+                // from the item file — see the module header DECISION note).
+                capabilities: this._buildItemCapabilities(type, entry, volume),
+                // The full raw definition (deep copy): the viewer lists every
+                // field of the item, so a field a future mod adds to the data
+                // file appears without any viewer change.
+                definition: structuredClone(entry),
             });
         }
         return rows.sort((a, b) => compareStrings(a.type, b.type));
+    }
+
+    /**
+     * The host footprint a recipe DECLARES, or null when it declares none.
+     * `form.externalVolume` first (the recipe→derivation location), then the
+     * legacy top-level key — the same read order as the engine's own resolver
+     * (`definitionVolume.getDefinitionFootprint`). Reading only the top-level key
+     * reported `null` for the T1, whose footprint lives under `form`, while the
+     * runtime computes 1.
+     * @param {Object} entry - The raw item definition.
+     * @returns {number|null}
+     * @private
+     */
+    _declaredExternalVolume(entry) {
+        const fromForm = (entry.form && typeof entry.form === 'object' && !Array.isArray(entry.form))
+            ? entry.form.externalVolume
+            : undefined;
+        const declared = fromForm ?? (typeof entry.externalVolume === 'number' ? entry.externalVolume : undefined);
+        return typeof declared === 'number' ? declared : null;
+    }
+
+    /**
+     * One item's capabilities, derived from the registries at assembly time:
+     *   - `equipable`: membership of the holdingCost model's `equipableItems`,
+     *     the only per-item equip data the world declares; an item can only ever
+     *     satisfy an action requirement while equipped, so a non-equipable item
+     *     enables nothing;
+     *   - `capacity` / `footprint`: storing is NOT a special power — any item is a
+     *     valid container up to its own volume (`InventoryManager.addItemToContainer`),
+     *     so capacity is the resolved volume and footprint what it occupies on its
+     *     host; capacity > footprint is what makes a T1 hold 10 while taking 1;
+     *   - `baseStats`: the stats the recipe carries before any instance exists
+     *     (explicit traits, else matter derivation) — the same values equipping
+     *     seeds (BUG-134), and the evidence for the action rows;
+     *   - `actions`: every action whose stat requirements those stats satisfy.
+     * @param {string} itemType - The item type key.
+     * @param {Object} entry - The raw item definition.
+     * @param {number} volume - The item's resolved volume (the row's `volume`).
+     * @returns {{equipable: boolean, capacity: number, footprint: number,
+     *   baseStats: Object, actions: Array<{name: string, description: string|null}>}}
+     * @private
+     */
+    _buildItemCapabilities(itemType, entry, volume) {
+        const equipable = Array.isArray(this._holdingCost?.equipableItems)
+            && this._holdingCost.equipableItems.includes(itemType);
+        const baseStats = resolveRecipeBaseStats(entry, { deriveStats: this._deriveStats });
+        return {
+            equipable,
+            capacity: volume,
+            footprint: getDefinitionFootprint(entry),
+            baseStats,
+            actions: equipable ? this._matchEnabledActions(baseStats) : [],
+        };
+    }
+
+    /**
+     * The actions whose requirements an item's base stats satisfy — the same
+     * ALL-present-and-met gate the capability scan applies
+     * (`_checkRequirementsForHostComponent`: a missing stat fails). An action
+     * that declares no requirements is UNIVERSAL (any equipped item carries it),
+     * so it matches too.
+     * @param {Object} baseStats - Stats keyed by trait.
+     * @returns {Array<{name: string, description: string|null}>} Sorted by name.
+     * @private
+     */
+    _matchEnabledActions(baseStats) {
+        const rows = [];
+        for (const [name, def] of Object.entries(this._actions ?? {})) {
+            if (name.startsWith('_')) continue; // metadata keys (_comment)
+            if (!def || typeof def !== 'object' || Array.isArray(def)) continue;
+            if (!this._requirementsSatisfied(def.requirements, baseStats)) continue;
+            rows.push({
+                name,
+                description: typeof def.description === 'string' ? def.description : null,
+            });
+        }
+        return rows.sort((a, b) => compareStrings(a.name, b.name));
+    }
+
+    /**
+     * True when `baseStats` meets every requirement of one action. A requirement
+     * with no `minValue` asks only that the stat be present (no bound).
+     * @param {Array<Object>|Object|undefined} requirements - The action's
+     *   `requirements` (absent or empty = universal).
+     * @param {Object} baseStats - Stats keyed by trait.
+     * @returns {boolean}
+     * @private
+     */
+    _requirementsSatisfied(requirements, baseStats) {
+        if (requirements === undefined || requirements === null) return true;
+        const list = Array.isArray(requirements)
+            ? requirements
+            : (typeof requirements === 'object' ? [requirements] : []);
+        return list.every((req) => {
+            if (!req || typeof req !== 'object' || typeof req.stat !== 'string') return false;
+            const value = baseStats[req.trait]?.[req.stat];
+            if (typeof value !== 'number') return false;
+            // Mirrors the engine's offer gate
+            // (`src/controllers/capabilities/componentCapabilityController.js`,
+            // `_checkRequirementsForHostComponent`): the stat must be PRESENT, and a
+            // gate with no `minValue` bounds nothing (`value < undefined` is false
+            // there). Reading an absent bound as 0 would hide from the reader an
+            // action the world still offers - they part company on a negative stat.
+            return typeof req.minValue === 'number' ? value >= req.minValue : true;
+        });
     }
 
     /**

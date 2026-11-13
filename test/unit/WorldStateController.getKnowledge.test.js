@@ -7,6 +7,9 @@
  *   - unwired: getKnowledge() returns the total empty-shape payload (NEVER null)
  *     — spec §4.3: the client renders per-section empty states, not an error,
  *     on a wiring miss (Finding #8 fix: the facade must not emit { knowledge: null }).
+ *   - the wired path carries the shipped action definitions with their stat gates
+ *     (the composition wiring for the `actions` section — an empty section is a
+ *     legal state, so it needs a positive pin).
  *
  * Harness mirrors test/unit/WorldStateController.getMaterialRegistry.test.js
  * (same buildWorldState / UniversalTickSystem setup).
@@ -52,6 +55,16 @@ describe('WorldStateController.getKnowledge', () => {
         expect(viaFacade).toEqual(viaSubController);
         expect(viaFacade).not.toBeNull();
 
+        // The composition wires the action registry into the codex: a real world
+        // carries the shipped action definitions, each with the stat gate the
+        // engine checks. Without this, dropping the injected registry would leave
+        // the Actions tab silently empty (an empty section is a legal state).
+        expect(viaFacade.actions.length).toBeGreaterThan(0);
+        const cut = viaFacade.actions.find((a) => a.name === 'cut');
+        expect(cut.requirements).toEqual([{ trait: 'Physical', stat: 'sharpness', minValue: 20 }]);
+        const universal = viaFacade.actions.filter((a) => a.requirements.length === 0);
+        expect(universal.map((a) => a.name).length).toBeGreaterThan(0);
+
         // Deep-copy check: mutate a returned nested value, call again, mutation is gone.
         viaFacade.items[0].name = 'MUTATED';
         viaFacade.traitStats.vocabulary.stats.push('hacked');
@@ -71,7 +84,7 @@ describe('WorldStateController.getKnowledge', () => {
 
         expect(payload).not.toBeNull();
         expect(payload).toEqual(emptyKnowledgePayload());
-        expect(topLevelKeys(payload)).toEqual(['items', 'recipes', 'traitStats']);
+        expect(topLevelKeys(payload)).toEqual(['actions', 'items', 'recipes', 'traitStats']);
         expect(payload.traitStats.vocabulary.traitGroups).toEqual(Object.values(TRAIT_GROUPS));
     });
 
@@ -83,6 +96,6 @@ describe('WorldStateController.getKnowledge', () => {
         const body = JSON.parse(JSON.stringify({ knowledge: world.getKnowledge() }));
 
         expect(body.knowledge).not.toBeNull();
-        expect(topLevelKeys(body.knowledge)).toEqual(['items', 'recipes', 'traitStats']);
+        expect(topLevelKeys(body.knowledge)).toEqual(['actions', 'items', 'recipes', 'traitStats']);
     });
 });

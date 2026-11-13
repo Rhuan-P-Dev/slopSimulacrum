@@ -13,6 +13,7 @@
 import Logger from '../../utils/Logger.js';
 import { REGISTRY_KINDS } from '../../../shared/RegistryKinds.js';
 import { readRegistryFrom } from '../../services/RegistryStore.js';
+import { buildStatsFromTraits, hasSeedableTraitValues } from '../../utils/itemBaseStats.js';
 
 /**
  * @typedef {Object} TraitStats
@@ -309,7 +310,9 @@ class EquippedItemStatsController {
      * @returns {boolean} True if at least one numeric leaf would be seeded.
      */
     hasSeedableTraitValues(traits) {
-        return Object.keys(this._buildStatsFromTraits(traits)).length > 0;
+        // Delegates to the shared rule (CR D-3): the Knowledge codex resolves the
+        // same precedence and the two must never disagree.
+        return hasSeedableTraitValues(traits);
     }
 
     // =========================================================================
@@ -320,35 +323,16 @@ class EquippedItemStatsController {
      * Builds a stats object from an item's trait definitions.
      * Extracts numeric stat values from trait data.
      *
+     * The rule itself lives in src/utils/itemBaseStats.js (CR D-3): the read-only
+     * Knowledge codex resolves the same numeric-leaf rule, so both readers share
+     * one implementation instead of two that can drift.
+     *
      * @param {Object} traits - The traits object from item definition.
      * @returns {ItemStats} The stats object keyed by trait.
      * @private
      */
     _buildStatsFromTraits(traits) {
-        if (!traits || typeof traits !== 'object') {
-            return {};
-        }
-
-        const stats = {};
-        for (const [traitId, traitData] of Object.entries(traits)) {
-            if (typeof traitData !== 'object' || traitData === null || Array.isArray(traitData)) {
-                continue;
-            }
-
-            stats[traitId] = {};
-            for (const [statName, statValue] of Object.entries(traitData)) {
-                if (typeof statValue === 'number') {
-                    stats[traitId][statName] = statValue;
-                }
-            }
-
-            // If the trait has no numeric stats, remove the empty entry
-            if (Object.keys(stats[traitId]).length === 0) {
-                delete stats[traitId];
-            }
-        }
-
-        return stats;
+        return buildStatsFromTraits(traits);
     }
 
     /**
