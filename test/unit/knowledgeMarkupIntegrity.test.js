@@ -42,7 +42,6 @@ const UNSTYLED_HOOKS = [
     'knowledge-actions',
     'knowledge-recipes',
     'knowledge-items',
-    'knowledge-capability-state',
     'knowledge-capability-actions',
     'knowledge-capability-stats',
 ];

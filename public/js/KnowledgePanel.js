@@ -443,12 +443,20 @@ export function renderItemCapabilities(capabilities) {
     }
     const rows = [];
 
-    const state = capabilities.equipable
-        ? CAPABILITY_UI_LABELS.EQUIPABLE
-        : CAPABILITY_UI_LABELS.NOT_EQUIPABLE;
-    let stateCell = `<span class="knowledge-capability-state">${escapeHtml(state)}</span>`;
+    // The equip state is a FLAG, not the first word of the field after it. As plain
+    // text it shared a class with the capacity next to it and the row read as one
+    // label - "Equipable Capacity 10". The modifier class is a whole literal inside
+    // the interpolation, the shape the markup integrity pin reads.
+    const equipable = capabilities.equipable === true;
+    const flagModifier = equipable
+        ? ' knowledge-capability-flag--equipable'
+        : ' knowledge-capability-flag--not-equipable';
+    let stateCell = `<span class="knowledge-capability-flag${flagModifier}">` +
+        `${escapeHtml(equipable ? CAPABILITY_UI_LABELS.EQUIPABLE : CAPABILITY_UI_LABELS.NOT_EQUIPABLE)}</span>`;
     if (typeof capabilities.capacity === 'number') {
-        stateCell += ` <span class="knowledge-capability-state">${escapeHtml(CAPABILITY_UI_LABELS.CAPACITY)} ${escapeHtml(String(capabilities.capacity))}</span>`;
+        // No class of its own on purpose: the row styles it, and a second unstyled
+        // marker beside the flag would be exactly the mistaking flag it.
+        stateCell += `<span>${escapeHtml(CAPABILITY_UI_LABELS.CAPACITY)} ${escapeHtml(String(capabilities.capacity))}</span>`;
         if (typeof capabilities.footprint === 'number' && capabilities.footprint !== capabilities.capacity) {
             stateCell += ` <span class="knowledge-capability-dim">(${escapeHtml(CAPABILITY_UI_LABELS.OCCUPIES)} ${escapeHtml(String(capabilities.footprint))})</span>`;
         }

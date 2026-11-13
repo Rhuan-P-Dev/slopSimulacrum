@@ -465,6 +465,9 @@ describe('renderItemCapabilities', () => {
         expect(html).toContain('Equipable');
         expect(html).toContain('Capacity 10');
         expect(html).toContain('occupies 1');
+        // The equip state is a bordered flag of its own (green); the capacity is
+        // plain text after it, not a second flag wearing the same class.
+        expect(html).toContain('<span class="knowledge-capability-flag knowledge-capability-flag--equipable">Equipable</span>');
         // Each action is a cross-link button carrying the raw action name.
         expect(html).toContain('<button type="button" class="knowledge-capability-chip" data-action="cut" title="Slice the target.">');
         expect(html).toContain('data-action="shootT1"');
@@ -481,6 +484,24 @@ describe('renderItemCapabilities', () => {
         expect(html).toContain('Capacity 10');
         expect(html).not.toContain('occupies');
         expect(html).not.toContain('knowledge-capability-chip');
+        // The other half of the flag: red, and never the green modifier.
+        expect(html).toContain('<span class="knowledge-capability-flag knowledge-capability-flag--not-equipable">Not equipable</span>');
+        expect(html).not.toContain('knowledge-capability-flag--equipable');
+    });
+
+    it('does not let the equip flag and the capacity read as one label', () => {
+        // The reported symptom: the equip state and the capacity were two spans of
+        // one unstyled class six pixels apart, so the card read "Equipable
+        // Capacity 10". The flag is its own bordered element now and the shared
+        // plain class is gone from the renderer - this pins both halves.
+        const html = renderItemCapabilities({ equipable: true, capacity: 10, footprint: 1, baseStats: {}, actions: [] });
+        expect(html).not.toContain('knowledge-capability-state');
+        const flag = html.indexOf('knowledge-capability-flag');
+        const capacity = html.indexOf('Capacity 10');
+        expect(flag).toBeGreaterThan(-1);
+        expect(capacity).toBeGreaterThan(flag);
+        // One flag per card, whatever the state it reports.
+        expect(html.match(/knowledge-capability-flag--/g) || []).toHaveLength(1);
     });
 
     it('escapes the action name inside the chip\'s data-action attribute', () => {

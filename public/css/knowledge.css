@@ -459,6 +459,29 @@
     color: var(--text-dim);
 }
 
+/* The equip state is a flag, not a word in the sentence: bordered and uppercased it
+ * cannot be read as the first word of the capacity that shares its row. Green when
+ * the item can be worn, red when it cannot - the red this panel already uses for
+ * "this row is telling you something is wrong". */
+.knowledge-capability-flag {
+    border: 1px solid currentColor;
+    border-radius: 2px;
+    padding: 0 4px;
+    font-family: monospace;
+    font-size: 0.95em;
+    line-height: 1.4;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+}
+
+.knowledge-capability-flag--equipable {
+    color: var(--neon-green);
+}
+
+.knowledge-capability-flag--not-equipable {
+    color: var(--neon-red);
+}
+
 /* An action named by an item's capability row is a button (data-action = the raw
  * action name); clicking jumps to the Actions tab and flashes that action's card.
  * Same affordance as .knowledge-recipe-ref / .knowledge-material-link. */
