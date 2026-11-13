@@ -31,6 +31,8 @@ import { MAX_TICKS_PER_SECOND } from '../../src/utils/Constants.js';
 import ModService from '../../src/services/ModService.js';
 import ModLoader, { OFFICIAL_ID_PREFIX } from '../../src/services/ModLoader.js';
 import { REGISTRY_KIND_LIST } from '../../shared/RegistryKinds.js';
+import { GameError } from '../../src/utils/CustomErrors.js';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 
 /** A real world (tick system not started) and the mod view over its store. */
 function worldWithModService() {
@@ -107,5 +109,172 @@ describe('the mod view of a real world', () => {
         expect(itemsPlan.added).toEqual([]);
         expect(world.registryStore.version(), 'a plan must not swap the world').toBe(before);
         expect(world.registryStore.read('inventoryItems').looseScrew).toBeDefined();
+    });
+});
+
+/**
+ * Fixture for the line tests: a temp install with four packages, three of which
+ * contribute. `central-ball` is shared by all four (the disabled one is never
+ * counted); `core-wheel` only alpha, `side-arm` only beta.
+ * Stack order (loadOrder, then id): alpha-mod #1000, delta-mod #1000 (disabled),
+ * beta-mod #1200, gamma-mod #1300.
+ */
+function lineWorld() {
+    const tick = new UniversalTickSystem(MAX_TICKS_PER_SECOND);
+    const world = buildWorldState(tick);
+    const tmp = `${process.cwd()}/.tmp-mods-${process.pid}-${Date.now()}`;
+    mkdirSync(tmp, { recursive: true });
+
+    const state = {};
+    const writePackage = (id, defsByKind, order = undefined, enabled = true) => {
+        mkdirSync(`${tmp}/${id}`, { recursive: true });
+        writeFileSync(
+            `${tmp}/${id}/mod.json`,
+            JSON.stringify({
+                id: id,
+                version: '1.0.0',
+                content: Object.keys(defsByKind),
+                requires: [],
+                description: 'fixture for the mod line viewer tests'
+            })
+        );
+        for (const kind of Object.keys(defsByKind)) {
+            writeFileSync(`${tmp}/${id}/${kind}.json`, JSON.stringify(defsByKind[kind]));
+        }
+        if (!enabled || order !== undefined) {
+            const entry = {};
+            if (enabled === false) entry.enabled = false;
+            if (order !== undefined) entry.loadOrder = order;
+            state[id] = entry;
+        }
+    };
+
+    writePackage('alpha-mod', {
+        components: { 'central-ball': { volume: 1 }, 'core-wheel': { volume: 2 } }
+    });
+    writePackage('beta-mod', {
+        components: { 'central-ball': { volume: 9 }, 'side-arm': { volume: 3 } }
+    }, 1200);
+    writePackage('gamma-mod', { components: { 'central-ball': { volume: 99 } } }, 1300);
+    writePackage('delta-mod', { components: { 'central-ball': { volume: 5 } } }, undefined, false);
+
+    return {
+        service: new ModService({
+            registryStore: world.registryStore,
+            loader: new ModLoader({ baseDir: tmp }),
+            stateStore: { load: () => ({ ...state }), save: () => {} }
+        }),
+        dir: tmp
+    };
+}
+
+describe('the mod line for a package', () => {
+    it('reports, for a package, who shadows it, whom it does not, and which copy wins', () => {
+        const { service, dir } = lineWorld();
+        try {
+            const lines = service.linesForMod('alpha-mod');
+            expect(lines).toMatchObject({
+                id: 'alpha-mod',
+                enabled: true,
+                loadOrder: 1000,
+                blocked: null,
+                contributes: true
+            });
+            expect(Object.keys(lines.lines)).toEqual(['components']);
+            const central = lines.lines.components.find((row) => row.key === 'central-ball');
+            expect(central).toEqual({
+                key: 'central-ball',
+                overriddenBy: [
+                    { modId: 'beta-mod', loadOrder: 1200 },
+                    { modId: 'gamma-mod', loadOrder: 1300 }
+                ],
+                overrides: [],
+                winner: { modId: 'gamma-mod', loadOrder: 1300 }
+            });
+            const wheel = lines.lines.components.find((row) => row.key === 'core-wheel');
+            expect(wheel).toEqual({
+                key: 'core-wheel',
+                overriddenBy: [],
+                overrides: [],
+                winner: { modId: 'alpha-mod', loadOrder: 1000 }
+            });
+        } finally {
+            rmSync(dir, { recursive: true, force: true });
+        }
+    });
+
+    it('reports the shadowing direction both ways, and the self-winner', () => {
+        const { service, dir } = lineWorld();
+        try {
+            const beta = service.linesForMod('beta-mod');
+            expect(
+                beta.lines.components.find((row) => row.key === 'central-ball')
+            ).toEqual({
+                key: 'central-ball',
+                overriddenBy: [{ modId: 'gamma-mod', loadOrder: 1300 }],
+                overrides: [{ modId: 'alpha-mod', loadOrder: 1000 }],
+                winner: { modId: 'gamma-mod', loadOrder: 1300 }
+            });
+            expect(
+                beta.lines.components.find((row) => row.key === 'side-arm')
+            ).toEqual({
+                key: 'side-arm',
+                overriddenBy: [],
+                overrides: [],
+                winner: { modId: 'beta-mod', loadOrder: 1200 }
+            });
+
+            const gamma = service.linesForMod('gamma-mod');
+            expect(
+                gamma.lines.components.find((row) => row.key === 'central-ball')
+            ).toEqual({
+                key: 'central-ball',
+                overriddenBy: [],
+                overrides: [
+                    { modId: 'alpha-mod', loadOrder: 1000 },
+                    { modId: 'beta-mod', loadOrder: 1200 }
+                ],
+                winner: { modId: 'gamma-mod', loadOrder: 1300 }
+            });
+        } finally {
+            rmSync(dir, { recursive: true, force: true });
+        }
+    });
+
+    it('does not count a disabled package as contributing, but still shows its lines as shadowed', () => {
+        const { service, dir } = lineWorld();
+        try {
+            const delta = service.linesForMod('delta-mod');
+            expect(delta).toMatchObject({ id: 'delta-mod', enabled: false, contributes: false });
+            expect(
+                delta.lines.components.find((row) => row.key === 'central-ball')
+            ).toEqual({
+                key: 'central-ball',
+                overriddenBy: [
+                    { modId: 'beta-mod', loadOrder: 1200 },
+                    { modId: 'gamma-mod', loadOrder: 1300 }
+                ],
+                overrides: [{ modId: 'alpha-mod', loadOrder: 1000 }],
+                winner: { modId: 'gamma-mod', loadOrder: 1300 }
+            });
+        } finally {
+            rmSync(dir, { recursive: true, force: true });
+        }
+    });
+
+    it('throws MOD_NOT_FOUND for a package that is not installed', () => {
+        const { service, dir } = lineWorld();
+        try {
+            let thrown = null;
+            try {
+                service.linesForMod('not-installed');
+            } catch (error) {
+                thrown = error;
+            }
+            expect(thrown, 'an uninstalled package must be refused, not answered').toBeInstanceOf(GameError);
+            expect(thrown.code).toBe('MOD_NOT_FOUND');
+        } finally {
+            rmSync(dir, { recursive: true, force: true });
+        }
     });
 });

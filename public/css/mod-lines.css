@@ -1,0 +1,290 @@
+/* Asset lines section of the Mods menu tab (public/js/ModsPanel.js +
+   public/js/ModLineViewer.js): one package at a time, every asset it ships,
+   per registry kind - who shadows it, whom it shadows, which copy the world
+   runs, a diff against the winning copy, and the full final JSON of that
+   copy. */
+
+/* Section heading + close button. */
+.mod-lines {
+    margin-top: 16px;
+}
+
+.mod-lines-h {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    margin: 0 0 4px;
+}
+
+.mod-lines-h code {
+    color: var(--neon-green, #00ff00);
+}
+
+.mod-lines-close {
+    margin-left: auto;
+    background: transparent;
+    border: 1px solid var(--config-bar-border, #333);
+    color: var(--text-dim, #aaa);
+    border-radius: 4px;
+    padding: 2px 8px;
+    cursor: pointer;
+    font-size: 11px;
+    font-family: inherit;
+}
+
+.mod-lines-close:hover {
+    color: var(--text-main, #fff);
+}
+
+.mod-lines-note {
+    margin: 6px 0 4px;
+    color: var(--text-dim, #aaa);
+    font-size: 12px;
+}
+
+.mod-lines-note--bad {
+    color: var(--neon-red, #ff4d4d);
+}
+
+/* Wide enough for key + winner chip + the two context lines. */
+.mod-line-section {
+    margin: 12px 0;
+}
+
+.mod-line-section-title {
+    margin: 0 0 6px;
+    font-size: 14px;
+    color: var(--neon-green, #00ff00);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.mod-line-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.mod-line-row {
+    border: 1px solid var(--config-bar-border, #333);
+    border-radius: 4px;
+    padding: 6px 8px;
+    margin-bottom: 4px;
+}
+
+.mod-line-head {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.mod-line-key {
+    font-size: 14px;
+    color: var(--text-main, #fff);
+}
+
+.mod-line-loadorder {
+    color: var(--text-dim, #aaa);
+    font-size: 12px;
+    font-family: ui-monospace, monospace;
+}
+
+.mod-line-winner.self {
+    color: var(--neon-green, #00ff00);
+    font-size: 12px;
+}
+
+.mod-line-winner.shadowed {
+    color: var(--neon-amber, #ffb347);
+    font-size: 12px;
+}
+
+.mod-line-winner.not-in-world {
+    color: var(--neon-red, #ff4d4d);
+    font-size: 12px;
+    font-style: italic;
+}
+
+.mod-line-context {
+    margin-top: 4px;
+    color: var(--text-dim, #aaa);
+    font-size: 12px;
+}
+
+.mod-line-actions {
+    margin-top: 4px;
+    display: flex;
+    gap: 8px;
+}
+
+.mod-line-toggle {
+    background: transparent;
+    color: var(--neon-green, #00ff00);
+    border: none;
+    font-size: 12px;
+    cursor: pointer;
+    padding: 0;
+}
+
+.mod-line-toggle:hover {
+    text-decoration: underline;
+}
+
+.mod-line-diff {
+    margin-top: 6px;
+    padding: 8px;
+    border: 1px dashed var(--config-bar-border, #444);
+    border-radius: 4px;
+    background: rgba(0, 0, 0, 0.3);
+    font-size: 13px;
+}
+
+.mod-line-diff-value {
+    color: var(--text-dim, #aaa);
+    margin: 2px 0;
+    font-size: 12px;
+    font-family: ui-monospace, monospace;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.mod-line-diff-status {
+    color: var(--text-dim, #aaa);
+    margin: 0 0 6px;
+    font-size: 12px;
+}
+
+.mod-line-diff-title {
+    margin: 0 0 6px;
+    font-weight: bold;
+}
+
+.mod-line-diff-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.mod-line-diff-item {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    margin-bottom: 4px;
+    flex-wrap: wrap;
+}
+
+.diff-key {
+    color: var(--text-main, #fff);
+    font-family: ui-monospace, monospace;
+    font-size: 13px;
+    min-width: 110px;
+}
+
+.diff-status.same {
+    color: var(--neon-green, #00ff00);
+    font-size: 12px;
+}
+
+.diff-status.differs {
+    color: var(--neon-amber, #ffb347);
+    font-size: 12px;
+}
+
+.diff-status.self-only {
+    color: var(--neon-amber, #ffb347);
+    font-size: 12px;
+    font-style: italic;
+}
+
+.diff-status.other-only {
+    color: var(--neon-green, #00ff00);
+    font-size: 12px;
+    font-style: italic;
+}
+
+.diff-value {
+    color: var(--text-dim, #aaa);
+    font-size: 12px;
+    font-family: ui-monospace, monospace;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+    min-width: 0;
+}
+
+/* Full definition the world runs, as a scrollable JSON block. */
+.mod-line-final {
+    border-style: solid;
+}
+
+.mod-lines-json {
+    margin: 6px 0 0;
+    background: rgba(0, 0, 0, 0.35);
+    border: 1px solid var(--config-bar-border, #333);
+    border-radius: 4px;
+    padding: 8px;
+    overflow-x: auto;
+    font-family: ui-monospace, monospace;
+    font-size: 12px;
+    color: var(--text-dim, #ccc);
+}
+
+/* ---------------------------------------------------------------- the float
+   The Assets submenu is a floating veil over the Mods screen, not part of the
+   list's flow. position:fixed draws it against the viewport - below the menu
+   bar (z-index 5100) and above the screen's own content (z-index 5000). The
+   translucent background + backdrop blur are what make it read as "floating":
+   the package list stays put behind it, dimmed, while the submenu scrolls on
+   top of it with its own scrollbar. It is a direct child of #mods-screen, so
+   closing the screen hides it (a display:none ancestor hides fixed children). */
+
+/* While the asset veil is open the Mods screen's own head (title + note + Close
+   button) stays visible and clickable above the translucent veil. Lifting the
+   head above the veil (z-index 5050) - but below the menu bar (5100) - paints
+   it on top. The veil content is given matching top padding so it starts below
+   the head and the two never collide. */
+#mods-screen > .sim-screen-inner > .sim-screen-head {
+    position: relative;
+    z-index: 5060;
+}
+
+#mods-lines-float {
+    position: fixed;
+    top: 56px;              /* clears the 56px menu bar, matching the screen's own padding */
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 5050;          /* over the screen (5000); the menu bar (5100) stays on top */
+    display: none;
+    overflow-y: auto;
+    box-sizing: border-box;
+    background: rgba(6, 6, 10, 0.82);
+    -webkit-backdrop-filter: blur(3px);
+    backdrop-filter: blur(3px);
+    border-top: 1px solid var(--config-bar-border, #333);
+    color: var(--text-main, #cfd2d4);
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+/* Center the submenu on the same 980px column the screen content uses. */
+#mods-lines-float > .mod-lines {
+    width: min(980px, 100%);
+    margin: 0 auto;
+    padding: 64px 16px 48px;
+    box-sizing: border-box;
+}
+
+/* Keep the package name + Close reachable while the assets scroll: the title
+   row sticks below the screen head (which floats above the veil), so it never
+   hides behind the Mods title or its Close button. */
+#mods-lines-float > .mod-lines > .mod-lines-h {
+    position: sticky;
+    top: 64px;
+    z-index: 1;
+    background: rgba(6, 6, 10, 0.95);
+    padding: 10px 0;
+    margin: 0;
+    border-bottom: 1px solid var(--config-bar-border, #333);
+}

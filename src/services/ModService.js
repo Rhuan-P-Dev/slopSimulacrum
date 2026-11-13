@@ -29,7 +29,8 @@
  */
 
 import ModLoader, {
-    resolveRequirements, sortModsForLoad, DEFAULT_LOAD_ORDER, MOD_ERROR_CODES, MANIFEST_FILE
+    resolveRequirements, sortModsForLoad, DEFAULT_LOAD_ORDER, MOD_ERROR_CODES,
+    MANIFEST_FILE, contributingMods
 } from './ModLoader.js';
 import classifyComposition from './CompositionClassifier.js';
 import DataLoader from '../utils/DataLoader.js';
@@ -814,6 +815,125 @@ export class ModService {
         files.sort((a, b) => a.name.localeCompare(b.name));
         const manifestFile = files.find((file) => file.name === MANIFEST_FILE);
         return { id, dir, manifest: manifestFile ? manifestFile.content : null, files };
+    }
+
+    /**
+     * The "line" of a package — the Mod Line Viewer (dev tab) renders this: for
+     * each kind the package ships, each definition key it declares, which
+     * packages carry the same key, and which copy the world runs.
+     * 
+     * Fresh discovery, like `plan()`: the answer agrees with what the world runs
+     * in a round, and the only thing the method answers is about the *install*
+     * — who shadows whom, in the world's own load order (`sortModsForLoad`), the
+     * very order the merge walks. Values are never touched: the line says which
+     * copy wins, and `packageFiles` is what the caller asks for the bytes of the
+     * definition it wants to expand. Keys that begin with an underscore are the
+     * registry's comment convention (core ships `_comment`) and are not
+     * definitions, so they get no line.
+     * 
+     * @param {string} id - the package to inspect
+     * @returns {{ id: string, enabled: boolean, loadOrder: number,
+     *   blocked: Object|null, contributes: boolean, version: number,
+     *   lines: Object.<string, Array<Object>> } - `lines` is keyed by the kinds
+     *   the package ships (a kind with a missing or unreadable file is absent:
+     *   that is a defect, and its report lives in Plan). Each row:
+     *   { key, overriddenBy: [{ modId, loadOrder }], overrides:
+     *   [{ modId, loadOrder }], winner: { modId, loadOrder } | null } -
+     *   `overriddenBy` is later in the stack than the package (the merge would
+     *   shadow it), `overrides` is earlier (the package would win over those),
+     *   and `winner` is the last contributing holder of the key, or null when
+     *   no package contributes one.
+     * }
+     * @throws {GameError} `MOD_NOT_FOUND` when `id` is not an installed package.
+     */
+    linesForMod(id) {
+        const { discovered } = this.discover();
+        const mod = discovered.find((entry) => entry.manifest.id === id);
+        if (!mod) {
+            throw new GameError(
+                `ModService: no mod package named "${id}" is installed`,
+                'MOD_NOT_FOUND'
+            );
+        }
+
+        // Stack order: enabled + requirement-satisfied first, then every
+        // installed package. The merge walks this very list, so "later"
+        // here is exactly the merge's "on top".
+        const ordered = sortModsForLoad(discovered);
+        const position = new Map(ordered.map((entry, index) => [entry.manifest.id, index]));
+        const contributing = new Set(contributingMods(discovered).map((entry) => entry.manifest.id));
+        const selfId = mod.manifest.id;
+        const selfPos = position.get(selfId);
+        const contributes = contributing.has(selfId);
+
+        const lines = {};
+        for (const kind of mod.manifest.content) {
+            if (!isRegistryKind(kind)) continue;
+            const dir = `${this.loader.baseDir}/${mod.dir}`;
+            const selfDef = DataLoader.loadJsonSafe(`${dir}/${kind}.json`, null);
+            if (selfDef === null || typeof selfDef !== 'object' || Array.isArray(selfDef)) {
+                continue;
+            }
+
+            // One read per contributing holder of this kind (P-4: read once,
+            // map it in memory, never per key).
+            const holderKeys = new Map();
+            for (const otherId of contributing) {
+                if (otherId === selfId) continue;
+                const content = DataLoader.loadJsonSafe(
+                    `${this.loader.baseDir}/${otherId}/${kind}.json`,
+                    null
+                );
+                holderKeys.set(
+                    otherId,
+                    content === null || typeof content !== 'object' || Array.isArray(content)
+                        ? new Set()
+                        : new Set(Object.keys(content).filter((k) => !k.startsWith('_')))
+                );
+            }
+
+            lines[kind] = Object.keys(selfDef)
+                .filter((key) => !key.startsWith('_'))
+                .map((key) => {
+                    const overriddenBy = [];
+                    const overrides = [];
+                    let winner = null;
+
+                    // Holders of the key, in stack order: the package itself
+                    // (when it contributes) plus every contributing mod that
+                    // carries it.
+                    for (const entry of ordered) {
+                        const otherId = entry.manifest.id;
+                        const holds =
+                            otherId === selfId
+                                ? contributes
+                                : holderKeys.has(otherId) && holderKeys.get(otherId).has(key);
+                        if (!holds) continue;
+                        const pos = position.get(otherId);
+                        const meta = { modId: otherId, loadOrder: entry.loadOrder };
+                        if (pos > selfPos) {
+                            overriddenBy.push(meta);
+                        } else if (pos < selfPos) {
+                            overrides.push(meta);
+                        }
+                        if (winner === null || pos > position.get(winner.modId)) {
+                            winner = meta;
+                        }
+                    }
+
+                    return { key, overriddenBy, overrides, winner };
+                });
+        }
+
+        return {
+            id: selfId,
+            enabled: mod.enabled,
+            loadOrder: mod.loadOrder,
+            blocked: mod.blocked ?? null,
+            contributes: contributes,
+            version: this.registryStore.version(),
+            lines
+        };
     }
 
     // =========================================================================

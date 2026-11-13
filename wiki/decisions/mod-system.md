@@ -225,6 +225,10 @@ Discipline that keeps this from rotting into `AP-3` (catch, log, return default)
 
 ### 7. State lives in `data/mods/loadorder.json`, gitignored; the save records the mod set.
 
+A fresh checkout has no state file: the boot logs the absence as ERROR plus WARN and the world
+runs the defaults (every package enabled, default order). That noise is expected and was kept on
+purpose (2026-11-12) - it is the seam's one loud line, not a defect to silence.
+
 ```json
 {
   "version": 1,
@@ -260,6 +264,7 @@ the machine-readable shape of `H-2`:
 | `POST /api/mods/:id/enable` | queue the enable at the next round boundary (idempotent by state, `H-3`) |
 | `POST /api/mods/:id/disable` | queue the disable at the next round boundary (idempotent by state) |
 | `GET /api/mods/:id/report` | current quarantine and shadowing for that mod |
+| `GET /mods/:id/lines` | Asset lines of the **Mods tab** (`public/js/ModsPanel.js`): the per-package **Assets** button opens a **floating submenu** - a semi-transparent veil that overlays the package list without pushing it down (drawn by `public/js/ModLineViewer.js`). It lists every definition the package ships, per registry kind. Each line names the contributing mods that shadow it (later in load order), the contributing mods it shadows (earlier), and which copy the world runs; expanding shows a top-level diff against the winning copy plus the full JSON of the copy the world runs (the winning copy's own `key`, or the whole kind file when the key is absent). The bytes come from `GET /mods/:id/files` - the same read surface the **Files** button uses. Read-only, like everything else here. The Mods screen's own **title + note + Close** stay above the veil (its z-index is lifted above the veil but below the menu bar), so the tab's real exit is always reachable while the veil is open; the veil's own **Close** hides only the veil (the list stays in place behind it); `Esc` closes the whole Mods screen. |
 
 Shipped paths (6 and 7, this change): the server mounts its routes at `/`, not at `/api`
 (`src/routes/index.js`), so the implemented surface is `GET /mods`, `GET /mods/kinds`,

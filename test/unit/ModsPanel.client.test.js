@@ -25,11 +25,12 @@ import {
     renderPackageList, requirementState, shadowIndex, sortMods, moveSummary,
     SORT_NAME, SORT_STACK
 } from '../../public/js/ModsPanel.js';
+import { renderLinesSection } from '../../public/js/ModLineViewer.js';
 
 /** A package row in the shape `GET /mods` returns. */
 const mod = (id, loadOrder, extra = {}) => ({
     id,
-    version: '1.0.0',
+    version: 1,
     official: id.startsWith('core-'),
     enabled: true,
     loadOrder,
@@ -306,5 +307,206 @@ describe('the position controls: moving a package in the stack', () => {
         it('does not claim a boundary for a change the server did not queue', () => {
             expect(moveSummary('x', payload({ pending: false }))).toContain('the world already matches');
         });
+    });
+});
+
+/** A payload like `GET /mods/:id/lines` returns for one package: one section
+ *   per shipped kind, each line carrying the shadow sets and the winner. */
+const linesPayload = {
+    id: 'core-components',
+    version: 1,
+    loadOrder: 1000,
+    contributes: true,
+    blocked: null,
+    lines: {
+        components: [
+            {
+                key: 'knife',
+                overriddenBy: [{ modId: 'guest-forge', loadOrder: 2000 }],
+                overrides: [{ modId: 'core-old', loadOrder: 500 }],
+                winner: { modId: 'guest-forge', loadOrder: 2000 }
+            },
+            {
+                key: 'hammer',
+                overriddenBy: [],
+                overrides: [{ modId: 'core-old', loadOrder: 500 }],
+                winner: { modId: 'core-components', loadOrder: 1000 }
+            },
+            {
+                key: 'anvil',
+                overriddenBy: [],
+                overrides: [],
+                winner: null
+            }
+        ],
+        actions: [{ key: 'smash', overriddenBy: [], overrides: [], winner: null }]
+    }
+};
+
+/** The state `ModLineViewer.state()` hands to the render function. */
+const linesState = (payload, extra = {}) => ({
+    modId: payload.id,
+    payload,
+    diff: null,
+    final: null,
+    ...extra
+});
+
+describe('the asset lines section (Assets button per package)', () => {
+    /** Rows for the package list, in the shape `GET /mods` returns. */
+    const listStack = [
+        { id: 'core-materials', version: 1, official: true, enabled: true, loadOrder: 0, content: ['materials'], requires: [], description: 'The core-materials package.' },
+        { id: 'extra-sensitive-parts', version: 1, official: false, enabled: true, loadOrder: 21, content: ['components'], requires: [], description: 'The extra-sensitive-parts package.' }
+    ];
+
+    it('every package row offers an Assets button', () => {
+        const html = renderPackageList({ mods: listStack });
+        expect(html).toContain('data-lines="core-materials"');
+        expect(html).toContain('data-lines="extra-sensitive-parts"');
+        expect(html).toContain('>Assets</button>');
+    });
+
+    it('renders nothing when no package is open', () => {
+        expect(renderLinesSection(null)).toBe('');
+        expect(renderLinesSection({})).toBe('');
+    });
+
+    it('one section per shipped kind, one line per key, with load order and both shadow directions', () => {
+        const html = renderLinesSection(linesState(linesPayload));
+        expect(html).toContain('Assets of <code>core-components</code>');
+        expect(html).toContain('components - 3');
+        expect(html).toContain('actions - 1');
+        expect(html).toContain('#1000');
+        expect(html).toContain('overridden by: guest-forge#2000');
+        expect(html).toContain('overrides: core-old#500');
+        expect(html).toContain('overridden by: none');
+        expect(html).toContain('overrides: none');
+    });
+
+    it('badges the winner: self, another package, or not in the world at all', () => {
+        const html = renderLinesSection(linesState(linesPayload));
+        expect(html).toContain('live: guest-forge#2000');
+        expect(html).toContain('live: this package');
+        expect(html).toContain('not in the world');
+        expect(html).toContain('class="mod-line-winner self"');
+        expect(html).toContain('class="mod-line-winner shadowed"');
+        expect(html).toContain('class="mod-line-winner not-in-world"');
+    });
+
+    it('says when the package contributes nothing, and drops Diff in that case', () => {
+        const html = renderLinesSection(linesState({ ...linesPayload, contributes: false }));
+        expect(html).toContain('does not contribute to the live world');
+        expect(html).not.toContain('data-lines-diff');
+        expect(html).toContain('data-lines-final');
+    });
+
+    it('diff: same, differs, and only-in-one-side, with the arrow to the winner', () => {
+        const html = renderLinesSection(linesState(linesPayload, {
+            diff: {
+                kind: 'components',
+                key: 'knife',
+                self: { grip: 'wood', mass: 1.2 },
+                other: { grip: 'wood', mass: 2.5, heat: true },
+                otherId: 'guest-forge'
+            }
+        }));
+        expect(html).toContain('Diff: core-components vs guest-forge (live copy)');
+        expect(html).toContain('diff-status same');
+        expect(html).toContain('diff-status differs');
+        expect(html).toContain('diff-status other-only');
+        expect(html).toContain('1.2 \u2192 2.5')
+    });
+
+    it('diff with a non-object side reports the missing object and the compact values', () => {
+        const html = renderLinesSection(linesState(linesPayload, {
+            diff: {
+                kind: 'components',
+                key: 'knife',
+                self: 'not an object',
+                other: null,
+                otherId: 'guest-forge'
+            }
+        }));
+        expect(html).toContain('did not come back as an object');
+        expect(html).toContain('not an object');
+        expect(html).toContain('guest-forge (live)');
+    });
+
+    it('the final copy shows the winning definition as JSON', () => {
+        const html = renderLinesSection(linesState(linesPayload, {
+            final: {
+                kind: 'components',
+                key: 'hammer',
+                content: { hammer: { grip: 'iron', mass: 3 } },
+                from: 'core-components'
+            }
+        }));
+        expect(html).toContain('Final copy - the definition the world runs');
+        expect(html).toContain('<pre class="mod-lines-json">');
+        expect(html).toContain('&quot;grip&quot;: &quot;iron&quot;');
+        expect(html).not.toContain('&quot;hammer&quot;:')
+    });
+
+    it('shows the whole kind file when the key is missing from the winning file', () => {
+        const html = renderLinesSection(linesState(linesPayload, {
+            final: {
+                kind: 'components',
+                key: 'hammer',
+                content: { bolt: { tight: true } },
+                from: 'core-components'
+            }
+        }));
+        expect(html).toContain('the key was not in the winning file; showing the whole kind file instead');
+        expect(html).toContain('&quot;tight&quot;: true');
+    });
+
+    it('escapes package ids before they reach the markup', () => {
+        const html = renderLinesSection(linesState({ ...linesPayload, id: 'bad< img>' }));
+        expect(html).not.toContain('<img');
+        expect(html).toContain('bad&lt; img&gt;');
+    });
+
+    it('drops Diff and Final when the package contributes but a key has no winner', () => {
+        const html = renderLinesSection(linesState({
+            ...linesPayload,
+            lines: {
+                components: [{ key: 'anvil', overriddenBy: [], overrides: [], winner: null }]
+            }
+        }));
+        expect(html).not.toContain('data-lines-diff');
+        expect(html).not.toContain('data-lines-final');
+    });
+
+    it('marks the final copy as the viewer only when the viewer is the winner', () => {
+        const viewerWins = renderLinesSection(linesState(linesPayload, {
+            final: {
+                kind: 'components',
+                key: 'hammer',
+                content: { hammer: { grip: 'iron', mass: 3 } },
+                from: 'core-components'
+            }
+        }));
+        // viewer (core-components) is the winner, so the marker is shown.
+        expect(viewerWins).toContain('(this package)');
+
+        const viewerLoses = renderLinesSection(linesState(linesPayload, {
+            final: {
+                kind: 'components',
+                key: 'hammer',
+                content: { hammer: { grip: 'iron', mass: 3 } },
+                from: 'guest-forge'
+            }
+        }));
+        // viewer (core-components) is not the winner (guest-forge), so no marker.
+        expect(viewerLoses).not.toContain('(this package)');
+    });
+
+    it('shows the Blocked note (bad variant) when the payload reports blocked', () => {
+        const html = renderLinesSection(linesState({
+            ...linesPayload,
+            blocked: { code: 'MOD_REQUIRES', message: 'requires "core-materials"' }
+        }));
+        expect(html).toContain('Blocked: requires');
+        expect(html).toContain('mod-lines-note--bad');
     });
 });
