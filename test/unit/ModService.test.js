@@ -809,3 +809,56 @@ describe('ownersOf and ownerChanges: the two derivations the move answer is buil
 function memStateOf(service) {
     return service.stateStore.holder;
 }
+
+describe('afterSwap: what the running world makes of a swap', () => {
+    const memState2 = (initial = {}) => {
+        const store = { state: { ...initial } };
+        return { load: () => ({ ...store.state }), save: (next) => { store.state = next; } };
+    };
+
+    it('hands the swapped kinds to the world and reports the answer as `map`', () => {
+        const seen = [];
+        const s = new ModService({
+            registryStore: storeFrom(),
+            loader: loader({}),
+            stateStore: memState2(),
+            afterSwap: (kinds) => {
+                seen.push(kinds);
+                return { added: [{ logicalId: 'annex', roomId: 'room-1' }] };
+            }
+        });
+
+        const answer = s.requestApply();
+
+        expect(answer.applied).toBe(true);
+        expect(seen).toHaveLength(1);
+        expect(seen[0]).toContain(REGISTRY_KINDS.COMPONENTS);
+        expect(answer.report.map).toEqual({ added: [{ logicalId: 'annex', roomId: 'room-1' }] });
+    });
+
+    it('does not turn a swapped definition into a failed apply when the world rejects it', () => {
+        const applied = storeFrom();
+        const s = new ModService({
+            registryStore: applied,
+            loader: loader({}),
+            stateStore: memState2(),
+            afterSwap: () => { throw new Error('the map refused the new room'); }
+        });
+
+        const answer = s.requestApply();
+
+        // The definition IS swapped — saying otherwise would be the worse lie. What the
+        // world could not do with it is named beside it, never swallowed.
+        expect(answer.applied).toBe(true);
+        expect(answer.report.ok).toBe(true);
+        expect(answer.report.map).toBeNull();
+        expect(answer.report.mapError).toBe('the map refused the new room');
+        expect(applied.version()).toBe(2);
+    });
+
+    it('is absent by default, and nothing downstream notices', () => {
+        const s = new ModService({ registryStore: storeFrom(), loader: loader({}), stateStore: memState2() });
+        expect(s.requestApply().report.map).toBeNull();
+        expect(s.requestApply().report.mapError).toBeNull();
+    });
+});

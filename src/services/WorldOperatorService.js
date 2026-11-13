@@ -6,6 +6,13 @@
  * it — set a component's `Physical.existence`, drop an organ, put an item in a pocket,
  * spawn/despawn an entity, execute a verb, place/retrieve a machine, start/stop the world.
  *
+ * It now reaches the map too. `create_room` adds a room to the running world and opens the
+ * door to an existing one; `spawn_world_object` places a prop. Both are **memory only** —
+ * the restart builds the map from the packages, so the way to keep a room is to author it
+ * (`propose_mod`, kind `rooms`). Neither moves, renames or removes anything that already
+ * exists: an installed room's uid is what every entity `location` holds
+ * (`wiki/decisions/world-structure-authoring.md`).
+ *
  * WHY A SEPARATE MODULE. `WorldAuthoringController` is the LLM chat + the *definition*
  * authoring flow (`propose_mod` -> mod package -> `POST /mods/apply` at the round boundary).
  * This module is the *live-state* half: it never talks to the LLM (`B-2`), never touches
@@ -20,10 +27,14 @@
  * checks run **again** (`T-1`) because the world may have moved between propose and
  * execute. A failed action is reported and the rest of the plan still runs.
  *
- * One facet: the facade gains exactly one new public method (`setComponentStat`), the one
- * stat-setter the console needs (see the decision doc). Every other operation maps to a
- * facade public method or an existing handler (`handlePlaceMachine` /
- * `handleRetrieveMachine`) that the routes already use.
+ * One facet: every operation maps to a facade public method or to an existing handler
+ * (`handlePlaceMachine` / `handleRetrieveMachine`) that the routes already use — the
+ * console never reaches into a sub-controller (`AP-5`). The facade has grown deliberately
+ * and each addition is pinned in `test/contract/worldStateController.contract.test.js`:
+ * `setComponentStat` was the one stat-setter this console needed
+ * (`wiki/decisions/system-live-operator.md`), and `createRoom` / `spawnWorldObject` /
+ * `getRoomLogicalId` came with the live map
+ * (`wiki/decisions/world-structure-authoring.md`).
  *
  * @module WorldOperatorService
  */
@@ -31,6 +42,7 @@
 import { TRAIT_GROUPS, STAT_NAMES } from '../../shared/StatVocabulary.js';
 import { handlePlaceMachine } from '../controllers/core/PlaceMachineHandler.js';
 import { handleRetrieveMachine } from '../controllers/core/RetrieveMachineHandler.js';
+import { roomDefinitionErrors } from './WorldStructureRules.js';
 
 /**
  * @typedef {Object} OperationSpec
@@ -62,6 +74,30 @@ const OPERATIONS = Object.freeze({
         execute: (p, s) => s.wsc.spawnEntity(p.blueprintName, p.roomId),
         summary: (p) => `spawn entity blueprint "${p.blueprintName}" into room "${p.roomId}"`
     },
+    spawn_world_object: {
+        desc: 'Place a prop (a static world object) in a room now: a real entity built from a blueprint, tagged isStatic — it is targetable and breakable, but never plans. Memory only: to keep it across a restart, author a "worldObjects" package instead.',
+        params: ['blueprint', 'roomId', 'name', 'position'],
+        required: ['blueprint', 'roomId'],
+        types: { blueprint: 'string', roomId: 'string', name: 'string', position: 'object' },
+        validate: (p, s) => {
+            const errs = [];
+            s._requireDefinition('blueprints', p.blueprint, errs);
+            s._requireRoom(p.roomId, errs);
+            if (p.position !== undefined && p.position !== null) {
+                const bad = ['x', 'y'].filter((axis) => p.position?.[axis] !== undefined
+                    && (typeof p.position[axis] !== 'number' || !Number.isFinite(p.position[axis])));
+                if (bad.length > 0) errs.push(`position.${bad.join(', ')} must be a finite number (room-relative; absent means the room centre).`);
+            }
+            return errs;
+        },
+        execute: (p, s) => s.wsc.spawnWorldObject({
+            blueprint: p.blueprint,
+            roomId: s._resolveRoomId(p.roomId),
+            name: p.name ?? null,
+            position: p.position ?? null
+        }),
+        summary: (p) => `place prop "${p.name ?? p.blueprint}" (blueprint ${p.blueprint}) in room ${p.roomId}`
+    },
     despawn_entity: {
         desc: 'Remove an entity from the world (and spill/despawn its contents).',
         params: ['entityId'],
@@ -84,6 +120,19 @@ const OPERATIONS = Object.freeze({
         },
         execute: (p, s) => s.wsc.moveEntity(p.entityId, p.targetRoomId),
         summary: (p) => `move entity ${p.entityId} to room "${p.targetRoomId}"`
+    },
+    create_room: {
+        desc: 'Add a NEW room to the running map and open a door to an existing one (both ways, so nothing is stranded). definition is one room exactly as the "rooms" registry shapes it (name, x, y, width, height, atmosphere, surface, acoustic, lightSource, ceiling, condition, power). Memory only: to keep the room across a restart, author the same definition into a "rooms" package. An existing room is never moved, renamed or resized.',
+        params: ['logicalId', 'definition', 'connectFrom'],
+        required: ['logicalId', 'definition', 'connectFrom'],
+        types: { logicalId: 'string', definition: 'object', connectFrom: 'object' },
+        validate: (p, s) => s._checkRoomCreation(p),
+        execute: (p, s) => s.wsc.createRoom({
+            logicalId: p.logicalId,
+            definition: p.definition,
+            connectFrom: s._normalizedConnectFrom(p.connectFrom)
+        }),
+        summary: (p) => `create room "${p.logicalId}" (${p.definition?.name ?? 'no name'}), connected through "${p.connectFrom?.door ?? '?'}" of ${p.connectFrom?.roomId ?? '?'}`
     },
     set_entity_stat: {
         desc: 'Set an entity-level stat (e.g. Pleasure.pleasure) to an absolute value. The entity is the owner, not a component.',
@@ -450,12 +499,25 @@ export class WorldOperatorService {
         };
     }
 
+    /**
+     * The live rooms, with **both** vocabularies a room has: `id` (the uid the world runs
+     * on, what an entity's `location` holds) and `logicalId` (the key the `rooms` registry
+     * reads, and what a room authored in a package is written under). A model that has only
+     * seen one of them will cite the other, so the two are printed together.
+     */
     listRooms() {
         const rooms = this.wsc.getRooms() || {};
         const list = [];
         for (const [id, r] of Object.entries(rooms)) {
             if (r && typeof r === 'object') {
-                list.push({ id, name: r.name ?? null, width: r.width ?? null, height: r.height ?? null });
+                list.push({
+                    id,
+                    logicalId: this.wsc.getRoomLogicalId?.(id) ?? null,
+                    name: r.name ?? null,
+                    width: r.width ?? null,
+                    height: r.height ?? null,
+                    doors: Object.keys(r.connections ?? {})
+                });
             }
         }
         return { count: list.length, rooms: list };
@@ -641,6 +703,93 @@ export class WorldOperatorService {
         if (typeof roomId !== 'string' || roomId.trim().length === 0) return;
         const rooms = Object.keys(this.wsc.getRooms() ?? {});
         if (!rooms.includes(roomId)) errs.push(`No room "${roomId}". Call list_rooms.`);
+    }
+
+    /**
+     * Resolve a room named EITHER way the world has for it: a room uid (what `getRooms()`
+     * is keyed by, what an entity's `location` holds) or the logical key of the definition
+     * (`start_room`, what a `rooms` package and a `worldObjects` entry name). Null when it
+     * resolves to nothing.
+     * @private
+     * @param {unknown} room
+     * @returns {string|null} the room uid
+     */
+    _resolveRoomId(room) {
+        if (typeof room !== 'string' || room.trim() === '') return null;
+        if (this.wsc.getRooms?.()?.[room]) return room;
+        return this.wsc.getRoomUidByLogicalId?.(room) ?? null;
+    }
+
+    /**
+     * A room reference must resolve, by uid or by logical key. The message names both
+     * vocabularies, because the model has seen both (`list_rooms` shows them side by side).
+     * @private
+     * @param {unknown} room
+     * @param {Array<string>} errs
+     */
+    _requireRoom(room, errs) {
+        if (typeof room !== 'string' || room.trim().length === 0) {
+            errs.push('A room is required (the room id from list_rooms, or its key in the "rooms" registry).');
+            return;
+        }
+        if (!this._resolveRoomId(room)) errs.push(`No room "${room}". Call list_rooms (id or logicalId).`);
+    }
+
+    /**
+     * The checks one `create_room` has to pass before it goes on the table: the definition
+     * is a room the map can be built from (the boot rules, `WorldStructureRules` — a room
+     * that would refuse to load tomorrow is refused now, in the conversation), the key is
+     * free, and the door asked for can actually be opened: the source room exists and does
+     * not already have a door of that name (an existing door is never re-pointed).
+     * @private
+     * @param {{ logicalId: string, definition: Object, connectFrom: Object }} p
+     * @returns {Array<string>}
+     */
+    _checkRoomCreation(p) {
+        const errs = roomDefinitionErrors(String(p.logicalId ?? ''), p.definition);
+        if (typeof p.logicalId !== 'string' || p.logicalId.trim() === '') {
+            errs.push('"logicalId" is the key the "rooms" registry will read, e.g. "smelter_annex".');
+        } else if (this.wsc.getRoomUidByLogicalId?.(p.logicalId)) {
+            errs.push(`A room "${p.logicalId}" is already installed. An installed room is never redefined — name it something new.`);
+        }
+        const connectFrom = p.connectFrom;
+        if (!connectFrom || typeof connectFrom !== 'object' || Array.isArray(connectFrom)) {
+            errs.push('"connectFrom" is required: { roomId, door } — a room nobody can reach is not a room the world has.');
+            return errs;
+        }
+        const sourceRoomId = this._resolveRoomId(connectFrom.roomId);
+        if (!sourceRoomId) {
+            errs.push(`"connectFrom.roomId": no room "${connectFrom.roomId}". Call list_rooms.`);
+        } else if (sourceRoomId === this.wsc.getRoomUidByLogicalId?.(p.logicalId)) {
+            errs.push('A room cannot connect to itself.');
+        }
+        if (typeof connectFrom.door !== 'string' || connectFrom.door.trim() === '') {
+            errs.push('"connectFrom.door" is the door name to open in that room, e.g. "north_door".');
+        } else if (sourceRoomId) {
+            const source = this.wsc.getRooms?.()?.[sourceRoomId];
+            if (Object.prototype.hasOwnProperty.call(source?.connections ?? {}, connectFrom.door.trim())) {
+                errs.push(`Room "${connectFrom.roomId}" already has a door "${connectFrom.door}". An existing door is never re-pointed — choose a new name.`);
+            }
+        }
+        return errs;
+    }
+
+    /**
+     * The `connectFrom` the facade expects, with the source room passed through as named
+     * (the facade resolves it the same way, against uid or logical key).
+     * @private
+     * @param {Object} connectFrom
+     * @returns {{ roomId: string, door: string, targetDoor: string|null, position: Object|null }}
+     */
+    _normalizedConnectFrom(connectFrom = {}) {
+        return {
+            roomId: connectFrom.roomId,
+            door: connectFrom.door,
+            targetDoor: typeof connectFrom.targetDoor === 'string' && connectFrom.targetDoor.trim() !== ''
+                ? connectFrom.targetDoor.trim()
+                : null,
+            position: connectFrom.position && typeof connectFrom.position === 'object' ? connectFrom.position : null
+        };
     }
 
     _requireDefinition(registryKind, key, errs) {

@@ -90,13 +90,22 @@ committed file, translate it in a separate commit that touches nothing else.
   `applied: false, appliesVia: "POST /mods/apply"`. See
   `wiki/decisions/agent-body-design.md` and `wiki/decisions/outfits.md`.
   The fourth kind is **`system-authoring`** (`WorldAuthoringController`, `/system/chat`,
-  the dev tab "System"): an operator wish, four tools that read the live definition
-  (`list_registries`, `read_registry`, `find_definitions`) and one terminal `propose_mod`.
+  the dev tab "System"): an operator wish, tools that read the live definition
+  (`list_registries`, `read_registry`, `find_definitions`) and one terminal `propose_mod`,
+  plus the live-operator lever (`list_entities`, `inspect_entity`, `list_rooms`,
+  `propose_action` -> `WorldOperatorService`, run by `/system/execute`).
   Judgment-only like the designer — a proposal is held in the session, and the explicit
   `/system/write` (a `sessionId` and nothing else) is what writes a **new** `system-*`
-  package under `data/mods/` through `ModPackageWriter`. Never a `core-*` file, never the
-  world structure kinds (`rooms`, `world`, `worldRules`, `worldObjects`), and never an
-  apply: applying stays `POST /mods/apply`. See `wiki/decisions/system-authoring.md`.
+  package under `data/mods/` through `ModPackageWriter`. Never a `core-*` file, never
+  `world` or `worldRules` (the kinds `NON_AUTHORABLE_KINDS` still refuses), and never an
+  apply: applying stays `POST /mods/apply`. **The map is authorable**: `rooms` and
+  `worldObjects` are, `create_room` / `spawn_world_object` do it live (memory only — a
+  restart takes the map from the packages), and an applied room joins the running map
+  *additively*: a swap never moves, renames or removes a room that already exists. The
+  shape rules are shared with boot (`src/services/WorldStructureRules.js`, run by
+  `CompositionClassifier`, so plan, proposal and boot say one thing). See
+  `wiki/decisions/system-authoring.md`, `wiki/decisions/system-live-operator.md` and
+  `wiki/decisions/world-structure-authoring.md`.
   The fifth kind is **`card-user-relationship`** (`CardUserRelationshipController`,
   `/agent-body/cards/:cardId/user-relationship`, the per-card button on the dev tab
   "Cards"): the LLM judges which relationship the card's character has with its

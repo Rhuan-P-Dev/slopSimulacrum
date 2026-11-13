@@ -223,3 +223,72 @@ describe('kinds with no composition rule today', () => {
         expect(result.valid.someFutureKind).toEqual({ a: 1 });
     });
 });
+
+describe('the map and its props (rooms, worldObjects)', () => {
+    /** A room the spatial model can be built from. */
+    const room = (over = {}) => ({ name: 'Annex', connections: {}, x: 0, y: 0, width: 100, height: 100, ...over });
+
+    it('passes a room and a prop whose references resolve', () => {
+        const result = classifyComposition(candidate({
+            [REGISTRY_KINDS.BLUEPRINTS]: { tree: { name: 'Tree' } },
+            [REGISTRY_KINDS.ROOMS]: {
+                start_room: room(),
+                annex: room({ connections: { back: { target: 'start_room' } } })
+            },
+            [REGISTRY_KINDS.WORLD_OBJECTS]: { bench: { name: 'Bench', blueprint: 'tree', room: 'annex', position: { x: 0, y: -40 } } }
+        }));
+
+        expect(result.quarantined).toEqual([]);
+        expect(result.valid[REGISTRY_KINDS.ROOMS].annex).toBeDefined();
+    });
+
+    it('quarantines the room the map cannot be built from, and keeps the good one', () => {
+        const result = classifyComposition(candidate({
+            [REGISTRY_KINDS.ROOMS]: { good: room(), broken: { name: 'Broken' } }
+        }));
+
+        expect(result.valid[REGISTRY_KINDS.ROOMS].good).toBeDefined();
+        expect(result.valid[REGISTRY_KINDS.ROOMS].broken).toBeUndefined();
+        const entry = result.quarantined.find((e) => e.key === 'broken');
+        expect(entry).toMatchObject({ kind: REGISTRY_KINDS.ROOMS, scope: QUARANTINE_SCOPE.DEFINITION });
+        // The sentence is boot's, not a second opinion on it (`CR T-2`).
+        expect(entry.reason).toContain("Room 'broken' must have numeric width, height");
+    });
+
+    it('takes a prop down with the room it pointed at', () => {
+        // The dependency chain again, in the other direction from the machines: a prop is
+        // placed in a room, so a room that did not survive takes its props with it, named.
+        const result = classifyComposition(candidate({
+            [REGISTRY_KINDS.BLUEPRINTS]: { tree: { name: 'Tree' } },
+            [REGISTRY_KINDS.ROOMS]: { good: room(), broken: { name: 'Broken' } },
+            [REGISTRY_KINDS.WORLD_OBJECTS]: {
+                inGood: { blueprint: 'tree', room: 'good' },
+                inBroken: { blueprint: 'tree', room: 'broken' }
+            }
+        }));
+
+        expect(result.valid[REGISTRY_KINDS.WORLD_OBJECTS].inGood).toBeDefined();
+        expect(result.valid[REGISTRY_KINDS.WORLD_OBJECTS].inBroken).toBeUndefined();
+        expect(result.quarantined.map((e) => e.key)).toEqual(expect.arrayContaining(['broken', 'inBroken']));
+    });
+
+    it('quarantines a prop whose blueprint the candidate does not hold', () => {
+        const result = classifyComposition(candidate({
+            [REGISTRY_KINDS.BLUEPRINTS]: { tree: { name: 'Tree' } },
+            [REGISTRY_KINDS.ROOMS]: { start_room: room() },
+            [REGISTRY_KINDS.WORLD_OBJECTS]: { bench: { blueprint: 'unobtainium', room: 'start_room' } }
+        }));
+
+        expect(result.quarantined[0]).toMatchObject({ kind: REGISTRY_KINDS.WORLD_OBJECTS, key: 'bench' });
+        expect(result.quarantined[0].reason).toContain("unknown blueprint 'unobtainium'");
+    });
+
+    it('keeps documentation keys where the owners treat them as metadata', () => {
+        const result = classifyComposition(candidate({
+            [REGISTRY_KINDS.ROOMS]: { _comment: 'the map', start_room: room() },
+            [REGISTRY_KINDS.WORLD_OBJECTS]: { _comment: 'the props' }
+        }));
+
+        expect(result.quarantined).toEqual([]);
+    });
+});

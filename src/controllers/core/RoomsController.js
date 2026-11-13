@@ -2,39 +2,11 @@ import { generateUID } from '../../utils/idGenerator.js';
 import Logger from '../../utils/Logger.js';
 import { REGISTRY_KINDS } from '../../../shared/RegistryKinds.js';
 import { readRegistryFrom } from '../../services/RegistryStore.js';
-
-/**
- * The light levels a room's `atmosphere.lightLevel` may declare. The single
- * enum validated against in the data and mapped by the prose/LLM layer.
- */
-const VALID_LIGHT_LEVELS = ['bright', 'dim', 'dark', 'flickering'];
-
-/**
- * The air qualities a room's `atmosphere.airQuality` may declare (what the
- * air in the room is like to breathe). Same single-enum pattern as lightLevel.
- */
-const VALID_AIR_QUALITY = ['clean', 'stale', 'smoky', 'toxic'];
-
-/**
- * The fog levels a room's `atmosphere.fog` may declare (how much the air
- * obscures visibility in the room).
- */
-const VALID_FOG = ['none', 'hazy', 'thick'];
-
-/**
- * The ceiling heights a room's `ceiling` may declare (sense of vertical space).
- */
-const VALID_CEILING = ['low', 'high', 'vaulted', 'open'];
-
-/**
- * The overall conditions a room's `condition` may declare (state of the room).
- */
-const VALID_CONDITION = ['pristine', 'worn', 'decaying', 'derelict'];
-
-/**
- * The power states a room's `power` may declare (whether electricity is available).
- */
-const VALID_POWER = ['live', 'flickering', 'dead'];
+import {
+    assertRoomDefinitions,
+    doorPositionErrors,
+    roomDefinitionErrors
+} from '../../services/WorldStructureRules.js';
 
 /**
  * RoomsController handles the storage and management of rooms and their connections.
@@ -42,6 +14,23 @@ const VALID_POWER = ['live', 'flickering', 'dead'];
  * 
  * Per wiki/CORE.md: RoomsController is a State Controller (data store only),
  * following the State Ownership vs. Logic Coordination pattern.
+ *
+ * IT GROWS, ADDITIVELY. The map used to be a boot-time fact: every room came from the
+ * `rooms` registry inside this constructor, with a generated uid, and nothing changed it
+ * afterwards — an applied package that authored a room only became a room at the next
+ * process start. `addRoom`, `connectRooms` and `reconcile` are how the map grows while a
+ * world runs (`wiki/decisions/world-structure-authoring.md`), and the one rule all three
+ * keep is that **an installed room is never moved, resized, renamed or unlinked**. A room
+ * uid is what every entity's `location` holds, what a round's prose already named and
+ * what the client drew last frame; rewriting a room that actors stand in is a corruption,
+ * not an update. Additive-only is what makes a live map change safe enough to be worth
+ * doing without a restart — and it is why a definition that renames or moves a room
+ * changes nothing in the running world (it takes effect on the next boot, from the same
+ * definition).
+ *
+ * The shape rules of a room are NOT here: they live in `WorldStructureRules`, because the
+ * boot path, the plan/apply classifier and the System's proposal must answer with one set
+ * of texts (`CR T-2`).
  */
 class RoomsController {
     /**
@@ -69,64 +58,18 @@ class RoomsController {
         // Validate loaded definitions before initialization
         this._validateRoomDefinitions(roomDefinitions);
 
-        // 1. Generate Unique IDs for all defined rooms
-        for (const logicalId in roomDefinitions) {
-            this.idMap[logicalId] = generateUID();
-        }
-
-        // 2. Initialize rooms with UIDs and expanded schema (objects, entities)
+        // 1. Install every room (uid + record) before any door is resolved, because a
+        // door may point at a room declared later in the file.
         for (const [logicalId, data] of Object.entries(roomDefinitions)) {
-            const uid = this.idMap[logicalId];
-            this.rooms[uid] = {
-                id: uid,
-                name: data.name,
-                surface: data.surface == null ? null : String(data.surface).trim(),
-                acoustic: data.acoustic == null ? null : String(data.acoustic).trim(),
-                lightSource: data.lightSource == null ? null : String(data.lightSource).trim(),
-                ceiling: data.ceiling == null ? null : String(data.ceiling).trim(),
-                condition: data.condition == null ? null : String(data.condition).trim(),
-                power: data.power == null ? null : String(data.power).trim(),
-                connections: {}, // Will be filled in next step
-                x: data.x,
-                y: data.y,
-                width: data.width,
-                height: data.height,
-                atmosphere: this._atmosphere(data),
-                objects: [],
-                entities: []
-            };
+            this._installRoom(logicalId, data);
         }
 
-        // 3. Map logical connections to actual generated UIDs and populate door positions
+        // 2. Map logical connections to the generated UIDs and populate door positions.
         // Supports both string format ("door": "target_room") and object format ("door": { "target": "target_room", "position": {...} })
         // Range is no longer stored on connections; it is computed from the entity's Movement.move stat client-side.
         for (const [logicalId, data] of Object.entries(roomDefinitions)) {
-            const uid = this.idMap[logicalId];
-            this.doorPositions[uid] = {};
             for (const [door, connectionData] of Object.entries(data.connections)) {
-                let targetLogicalId;
-                let position = null;
-
-                if (typeof connectionData === 'string') {
-                    // Legacy string format: {"right_door": "right_room"}
-                    targetLogicalId = connectionData;
-                } else {
-                    // Object format: {"right_door": {"target": "right_room", "position": {...}}}
-                    targetLogicalId = connectionData.target;
-                    if (connectionData.position) {
-                        position = this._normalizePosition(connectionData.position, data.width, data.height);
-                    }
-                }
-
-                // Store in object-wrapped format (per wiki design)
-                this.rooms[uid].connections[door] = {
-                    target: this.idMap[targetLogicalId]
-                };
-
-                // Store door position if available
-                if (position) {
-                    this.doorPositions[uid][door] = position;
-                }
+                this._installConnection(logicalId, door, connectionData);
             }
         }
 
@@ -134,75 +77,92 @@ class RoomsController {
     }
 
     /**
-     * Validates room definitions loaded from the data file.
-     * Supports both string connection format and object format with target.
-     * Range is no longer validated on connections; it is computed from the entity's Movement.move stat.
+     * Mint the id of one room and install its record. Shared by the boot pass and by a
+     * room added at runtime, so a room that appears mid-world has exactly the record shape
+     * every consumer already reads (`objects`, `entities`, the eight atmosphere keys).
+     * Validation is the caller's: boot ran the whole-definition pass, `addRoom` runs the
+     * single-room pass, and neither re-checks downstream (`CR T-2`).
+     * @private
+     * @param {string} logicalId - the key the definition uses
+     * @param {Object} data - the room definition
+     * @returns {string} the generated room uid
+     */
+    _installRoom(logicalId, data) {
+        const uid = generateUID();
+        this.idMap[logicalId] = uid;
+        this.rooms[uid] = {
+            id: uid,
+            name: data.name,
+            surface: data.surface == null ? null : String(data.surface).trim(),
+            acoustic: data.acoustic == null ? null : String(data.acoustic).trim(),
+            lightSource: data.lightSource == null ? null : String(data.lightSource).trim(),
+            ceiling: data.ceiling == null ? null : String(data.ceiling).trim(),
+            condition: data.condition == null ? null : String(data.condition).trim(),
+            power: data.power == null ? null : String(data.power).trim(),
+            connections: {}, // filled by _installConnection
+            x: data.x,
+            y: data.y,
+            width: data.width,
+            height: data.height,
+            atmosphere: this._atmosphere(data),
+            objects: [],
+            entities: []
+        };
+        this.doorPositions[uid] = {};
+        return uid;
+    }
+
+    /**
+     * Install one door of one installed room: resolve the target logical id to its uid and
+     * keep an authored position, normalized to room-relative X/Y.
+     *
+     * A target that resolves to nothing stays unresolved, exactly as boot has always left
+     * it — a dangling door is refused where a *candidate* can be checked against the rest
+     * of it (`WorldStructureRules`, run by the classifier), not by the store.
+     * @private
+     * @param {string} sourceLogicalId
+     * @param {string} doorName
+     * @param {string|Object} connectionData
+     * @returns {{ roomId: string, door: string, target: string|null }|null} null when the source is not installed.
+     */
+    _installConnection(sourceLogicalId, doorName, connectionData) {
+        const uid = this.idMap[sourceLogicalId];
+        const source = this.rooms[uid];
+        if (!source) return null;
+
+        let targetLogicalId = null;
+        let position = null;
+        if (typeof connectionData === 'string') {
+            // Legacy string format: {"right_door": "right_room"}
+            targetLogicalId = connectionData;
+        } else if (connectionData && typeof connectionData === 'object') {
+            // Object format: {"right_door": {"target": "right_room", "position": {...}}}
+            targetLogicalId = connectionData.target;
+            if (connectionData.position) {
+                position = this._normalizePosition(connectionData.position, source.width, source.height);
+            }
+        }
+
+        // Store in object-wrapped format (per wiki design)
+        source.connections[doorName] = { target: this.idMap[targetLogicalId] };
+        if (position) {
+            this.doorPositions[uid][doorName] = position;
+        }
+        return { roomId: uid, door: doorName, target: this.idMap[targetLogicalId] ?? null };
+    }
+
+        /**
+     * Boot's fast fail on a definition the map cannot be built from (`CR E-8`). The rules
+     * themselves live in `WorldStructureRules`, so the boot path, the plan/apply classifier
+     * and the System's proposal answer with one set of texts, not three (`CR T-2`).
      * @private
      * @param {Object} defs - Room definitions to validate.
-     * @throws {TypeError} If validation fails.
+     * @throws {TypeError} the first violation, naming the room and the field.
      */
     _validateRoomDefinitions(defs) {
-        if (typeof defs !== 'object' || defs === null) {
-            throw new TypeError('Room definitions must be an object');
-        }
-        for (const [logicalId, def] of Object.entries(defs)) {
-            if (typeof def.name !== 'string' || def.name.trim() === '') {
-                throw new TypeError(`Room '${logicalId}' must have a non-empty name`);
-            }
-            // Environment (optional): surface, acoustic, lightSource.
-            for (const [fieldName, value] of [
-                ['surface', def.surface],
-                ['acoustic', def.acoustic],
-                ['lightSource', def.lightSource]
-            ]) {
-                if (value !== undefined && (typeof value !== 'string' || value.trim() === '')) {
-                    throw new TypeError(`Room '${logicalId}' ${fieldName} must be a non-empty string when present`);
-                }
-            }
-            // Environment (optional): ceiling, condition, power (constrained enums).
-            for (const [fieldName, value, valid] of [
-                ['ceiling', def.ceiling, VALID_CEILING],
-                ['condition', def.condition, VALID_CONDITION],
-                ['power', def.power, VALID_POWER]
-            ]) {
-                if (value !== undefined && (typeof value !== 'string' || !valid.includes(value))) {
-                    throw new TypeError(`Room '${logicalId}' ${fieldName} must be one of ${valid.join(', ')}`);
-                }
-            }
-            if (typeof def.connections !== 'object' || def.connections === null) {
-                throw new TypeError(`Room '${logicalId}' must have a connections object`);
-            }
-            for (const [door, connectionData] of Object.entries(def.connections)) {
-                if (typeof door !== 'string' || door.trim() === '') {
-                    throw new TypeError(`Room '${logicalId}' connection must have a non-empty door name`);
-                }
-                if (typeof connectionData === 'string') {
-                    // String format: validate target
-                    if (connectionData.trim() === '') {
-                        throw new TypeError(`Room '${logicalId}' connection '${door}' must have a non-empty target`);
-                    }
-                } else if (typeof connectionData === 'object' && connectionData !== null) {
-                    // Object format: validate target
-                    if (typeof connectionData.target !== 'string' || connectionData.target.trim() === '') {
-                        throw new TypeError(`Room '${logicalId}' connection '${door}' must have a non-empty string target`);
-                    }
-                    // Optional position validation — supports both direct X/Y and legacy edge/offset
-                    if (connectionData.position !== undefined) {
-                        this._validatePosition(connectionData.position, logicalId, door);
-                    }
-                } else {
-                    throw new TypeError(`Room '${logicalId}' connection '${door}' must be a string or object`);
-                }
-            }
-            if (typeof def.x !== 'number' || typeof def.y !== 'number') {
-                throw new TypeError(`Room '${logicalId}' must have numeric x, y coordinates`);
-            }
-            if (typeof def.width !== 'number' || typeof def.height !== 'number') {
-                throw new TypeError(`Room '${logicalId}' must have numeric width, height`);
-            }
-            this._validateAtmosphere(logicalId, def.atmosphere);
-        }
+        assertRoomDefinitions(defs);
     }
+
 
     /**
      * Normalizes the room's `atmosphere` block (validated in
@@ -231,59 +191,7 @@ class RoomsController {
         };
     }
 
-    /**
-     * Validates the optional per-room `atmosphere` block. When present it must be
-     * a plain object with strictly typed fields: temperature and humidity finite
-     * numbers, lightLevel one of VALID_LIGHT_LEVELS, airQuality one of
-     * VALID_AIR_QUALITY, fog one of VALID_FOG, and lightColor/smell/ambientSound
-     * strings. An absent field is fine; the block itself is optional. Mirrors
-     * the house style of _validatePosition (a named-field TypeError on any
-     * violation).
-     * @private
-     * @param {string} logicalId
-     * @param {*} atmosphere
-     * @throws {TypeError} naming the offending field on a violation.
-     */
-    _validateAtmosphere(logicalId, atmosphere) {
-        if (atmosphere == null) return;
-        if (typeof atmosphere !== 'object' || Array.isArray(atmosphere)) {
-            throw new TypeError(`Room '${logicalId}' atmosphere must be an object`);
-        }
-        const temperature = atmosphere.temperature;
-        if (temperature !== undefined && (typeof temperature !== 'number' || !Number.isFinite(temperature))) {
-            throw new TypeError(`Room '${logicalId}' atmosphere.temperature must be a finite number`);
-        }
-        const lightLevel = atmosphere.lightLevel;
-        if (lightLevel !== undefined && (typeof lightLevel !== 'string' || !VALID_LIGHT_LEVELS.includes(lightLevel))) {
-            throw new TypeError(
-                `Room '${logicalId}' atmosphere.lightLevel must be one of ${VALID_LIGHT_LEVELS.join(', ')}`
-            );
-        }
-        const lightColor = atmosphere.lightColor;
-        if (lightColor !== undefined && typeof lightColor !== 'string') {
-            throw new TypeError(`Room '${logicalId}' atmosphere.lightColor must be a string`);
-        }
-        const humidity = atmosphere.humidity;
-        if (humidity !== undefined && (typeof humidity !== 'number' || !Number.isFinite(humidity))) {
-            throw new TypeError(`Room '${logicalId}' atmosphere.humidity must be a finite number`);
-        }
-        const airQuality = atmosphere.airQuality;
-        if (airQuality !== undefined && (typeof airQuality !== 'string' || !VALID_AIR_QUALITY.includes(airQuality))) {
-            throw new TypeError(
-                `Room '${logicalId}' atmosphere.airQuality must be one of ${VALID_AIR_QUALITY.join(', ')}`
-            );
-        }
-        const fog = atmosphere.fog;
-        if (fog !== undefined && (typeof fog !== 'string' || !VALID_FOG.includes(fog))) {
-            throw new TypeError(`Room '${logicalId}' atmosphere.fog must be one of ${VALID_FOG.join(', ')}`);
-        }
-        for (const [fieldName, value] of [['smell', atmosphere.smell], ['ambientSound', atmosphere.ambientSound]]) {
-            if (value !== undefined && typeof value !== 'string') {
-                throw new TypeError(`Room '${logicalId}' atmosphere.${fieldName} must be a string`);
-            }
-        }
-    }
-
+    
     /**
      * Resolves a logical room name to its generated UUID.
      * @param {string} logicalId - The logical name of the room (e.g., 'start_room').
@@ -291,6 +199,215 @@ class RoomsController {
      */
     getUidByLogicalId(logicalId) {
         return this.idMap[logicalId] || null;
+    }
+
+    /**
+     * True when a logical room key is already installed.
+     * @param {string} logicalId
+     * @returns {boolean}
+     */
+    hasLogicalId(logicalId) {
+        return Object.prototype.hasOwnProperty.call(this.idMap, logicalId);
+    }
+
+    /**
+     * The logical key of a room uid, or null. The reverse of `getUidByLogicalId`, and the
+     * reader that lets an operator say "connect the new room to `start_room`" while the
+     * world runs on uids. A scan, not an index: the map is a handful of rooms and this is
+     * an operator-console read, not a turn-loop path (`CR PERF-3`).
+     * @param {string} roomId
+     * @returns {string|null}
+     */
+    getLogicalId(roomId) {
+        for (const [logicalId, uid] of Object.entries(this.idMap)) {
+            if (uid === roomId) return logicalId;
+        }
+        return null;
+    }
+
+    /**
+     * The logical keys of every installed room, in the order they were installed.
+     * @returns {Array<string>}
+     */
+    logicalIds() {
+        return Object.keys(this.idMap);
+    }
+
+    /**
+     * Add one room to a running map.
+     *
+     * The key must be new: an installed room is never redefined here (`this.rooms[uid]` is
+     * what actors, broadcasts and the round's prose already named). The definition is
+     * checked by the same rules boot checks, so a room that would refuse to load tomorrow
+     * is refused now, where the operator still has a conversation to fix it in.
+     *
+     * @param {string} logicalId - the key the world will read (and what a `worldObjects`
+     *   entry or a later package refers to)
+     * @param {Object} data - one room definition, the shape the `rooms` registry already uses
+     * @returns {{ logicalId: string, roomId: string }}
+     * @throws {TypeError} a missing key, a key already taken, or the first rule violation
+     */
+    addRoom(logicalId, data) {
+        if (typeof logicalId !== 'string' || logicalId.trim() === '') {
+            throw new TypeError('A room needs a logical id');
+        }
+        if (this.hasLogicalId(logicalId)) {
+            throw new TypeError(`Room '${logicalId}' already exists — an installed room is never redefined`);
+        }
+        const errors = roomDefinitionErrors(logicalId, data);
+        if (errors.length > 0) throw new TypeError(errors[0]);
+        const roomId = this._installRoom(logicalId, data);
+        Logger.info(`[RoomsController] room '${logicalId}' added as ${roomId}`);
+        return { logicalId, roomId };
+    }
+
+    /**
+     * Open a door between two installed rooms — in **both** directions, because a door
+     * that does not lead back is how an actor gets stranded in a room it entered.
+     *
+     * Additive: an existing door keeps its target and this refuses rather than re-pointing
+     * it. Both rooms may be named by uid (what the world uses) or by logical key (what the
+     * definition uses).
+     *
+     * @param {string} fromRoom - uid or logical key of the room the door opens in
+     * @param {string} doorName - the door name to open there
+     * @param {string} toRoom - uid or logical key of the room it leads to
+     * @param {Object} [options]
+     * @param {string|null} [options.targetDoorName] - the door opened in the target room
+     *   (default `back_to_<doorName>`)
+     * @param {Object|null} [options.position] - authored room-relative position of the
+     *   source door, `{ x, y }` or the legacy `{ edge, offset }`
+     * @returns {{ fromRoomId: string, door: string, toRoomId: string, targetDoor: string }}
+     * @throws {TypeError} an unknown room, the same room twice, a door name already used,
+     *   or a position the rules refuse
+     */
+    connectRooms(fromRoom, doorName, toRoom, { targetDoorName = null, position = null } = {}) {
+        const fromRoomId = this._resolveRoom(fromRoom);
+        const toRoomId = this._resolveRoom(toRoom);
+        if (!fromRoomId) throw new TypeError(`No room '${fromRoom}'`);
+        if (!toRoomId) throw new TypeError(`No room '${toRoom}'`);
+        if (fromRoomId === toRoomId) {
+            throw new TypeError(`Room '${fromRoom}' cannot connect to itself`);
+        }
+        if (typeof doorName !== 'string' || doorName.trim() === '') {
+            throw new TypeError('A door needs a name');
+        }
+        const source = this.rooms[fromRoomId];
+        const target = this.rooms[toRoomId];
+        if (Object.prototype.hasOwnProperty.call(source.connections, doorName)) {
+            throw new TypeError(`Room '${this.getLogicalId(fromRoomId) ?? fromRoomId}' already has a door '${doorName}'`);
+        }
+        const backDoor = typeof targetDoorName === 'string' && targetDoorName.trim() !== ''
+            ? targetDoorName.trim()
+            : `back_to_${doorName}`;
+        if (Object.prototype.hasOwnProperty.call(target.connections, backDoor)) {
+            throw new TypeError(`Room '${this.getLogicalId(toRoomId) ?? toRoomId}' already has a door '${backDoor}'`);
+        }
+        if (position != null) {
+            const positionErrors = doorPositionErrors(position, this.getLogicalId(fromRoomId) ?? fromRoomId, doorName);
+            if (positionErrors.length > 0) throw new TypeError(positionErrors[0]);
+        }
+
+        this._installDoorBetween(fromRoomId, doorName, toRoomId, position);
+        this._installDoorBetween(toRoomId, backDoor, fromRoomId);
+        Logger.info(`[RoomsController] door '${doorName}' opened between ${fromRoomId} and ${toRoomId} ('${backDoor}' back)`);
+        return { fromRoomId, door: doorName, toRoomId, targetDoor: backDoor };
+    }
+
+    /**
+     * Point one installed room's door at another installed room — the uid-level form of
+     * `_installConnection`, which is the definition-level one (a logical key, an authored
+     * position, both connection formats).
+     * @private
+     * @param {string} fromRoomId
+     * @param {string} doorName
+     * @param {string} toRoomId
+     * @param {Object|null} [position] - authored room-relative position, either format
+     */
+    _installDoorBetween(fromRoomId, doorName, toRoomId, position = null) {
+        const source = this.rooms[fromRoomId];
+        source.connections[doorName] = { target: toRoomId };
+        if (position) {
+            this.doorPositions[fromRoomId][doorName] = this._normalizePosition(position, source.width, source.height);
+        }
+    }
+
+    /**
+     * Grow the map to match a definition: the additive half of a definition swap.
+     *
+     * Called after a swap that wrote the `rooms` kind, so a room somebody authored (in a
+     * package, through the System or by hand) becomes a room the running world has, without
+     * a restart. Two passes, for the same reason the constructor is two passes: install
+     * every new room first, then resolve doors, so a door may point at a room the same
+     * definition declares after it.
+     *
+     * What it never does: move, resize, rename or re-link an installed room, or remove
+     * anything. An authored change to an existing room is therefore reported as ignored in
+     * the sense that it stays in the definition and lands on the next boot; a door that is
+     * already there keeps its target.
+     *
+     * A room whose shape the world cannot read is **skipped with its rule text**, not
+     * thrown: the definition has already been swapped, and trading a running world for one
+     * bad room is the wrong trade (`CR E-1`). The report names every skip.
+     *
+     * @param {Object} definitions - the `rooms` registry content, as the store holds it
+     * @returns {{ added: Array<{logicalId: string, roomId: string}>, doorsAdded: Array<{roomId: string, door: string, target: string|null}>, skipped: Array<{logicalId: string, reason: string}> }}
+     */
+    reconcile(definitions = {}) {
+        const report = { added: [], doorsAdded: [], skipped: [] };
+        if (!definitions || typeof definitions !== 'object' || Array.isArray(definitions)) return report;
+        const known = Object.keys(definitions);
+
+        // Pass 1 — the new rooms. An existing key is never reinstalled.
+        for (const [logicalId, data] of Object.entries(definitions)) {
+            if (this.hasLogicalId(logicalId)) continue;
+            const errors = roomDefinitionErrors(logicalId, data, { knownLogicalIds: known });
+            if (errors.length > 0) {
+                report.skipped.push({ logicalId, reason: errors.join('; ') });
+                continue;
+            }
+            const roomId = this._installRoom(logicalId, data);
+            report.added.push({ logicalId, roomId });
+        }
+
+        // Pass 2 — the doors, including new doors on rooms that were already here.
+        for (const [logicalId, data] of Object.entries(definitions)) {
+            const roomId = this.idMap[logicalId];
+            const room = this.rooms[roomId];
+            if (!room || !data || typeof data !== 'object' || !data.connections || typeof data.connections !== 'object') continue;
+            for (const [door, connectionData] of Object.entries(data.connections)) {
+                if (Object.prototype.hasOwnProperty.call(room.connections, door)) continue; // never re-point
+                const targetLogicalId = typeof connectionData === 'string'
+                    ? connectionData
+                    : (connectionData && typeof connectionData === 'object' ? connectionData.target : null);
+                if (!this.hasLogicalId(targetLogicalId)) {
+                    report.skipped.push({ logicalId, reason: `connection '${door}' targets unknown room '${targetLogicalId}'` });
+                    continue;
+                }
+                const installed = this._installConnection(logicalId, door, connectionData);
+                if (installed) report.doorsAdded.push({ roomId, door, target: installed.target });
+            }
+        }
+
+        if (report.added.length > 0 || report.doorsAdded.length > 0 || report.skipped.length > 0) {
+            Logger.info(
+                `[RoomsController] reconcile: ${report.added.length} room(s) added, `
+                + `${report.doorsAdded.length} door(s) opened, ${report.skipped.length} skipped`
+            );
+        }
+        return report;
+    }
+
+    /**
+     * Resolve a room given either way — uid or logical key — to the uid. Null when neither.
+     * @private
+     * @param {string} room
+     * @returns {string|null}
+     */
+    _resolveRoom(room) {
+        if (typeof room !== 'string' || room.trim() === '') return null;
+        if (this.rooms[room]) return room;
+        return this.getUidByLogicalId(room);
     }
 
     /**
@@ -413,39 +530,7 @@ class RoomsController {
         return { x: 0, y: 0 };
     }
 
-    /**
-     * Validates a door position object supporting both direct X/Y and legacy edge/offset formats.
-     * @private
-     * @param {Object} position - The position object to validate.
-     * @param {string} roomId - The room logical ID (for error messages).
-     * @param {string} doorName - The door name (for error messages).
-     * @throws {TypeError} If validation fails.
-     */
-    _validatePosition(position, roomId, doorName) {
-        // Direct X/Y format (new preferred format)
-        if (position.x !== undefined || position.y !== undefined) {
-            if (typeof position.x !== 'number') {
-                throw new TypeError(`Room '${roomId}' door '${doorName}' position.x must be a number`);
-            }
-            if (typeof position.y !== 'number') {
-                throw new TypeError(`Room '${roomId}' door '${doorName}' position.y must be a number`);
-            }
-            return;
-        }
-        // Legacy edge/offset format (backward compatible)
-        if (position.edge !== undefined || position.offset !== undefined) {
-            const validEdges = ['left', 'right', 'top', 'bottom'];
-            if (!validEdges.includes(position.edge)) {
-                throw new TypeError(`Room '${roomId}' door '${doorName}' has invalid edge '${position.edge}'`);
-            }
-            if (typeof position.offset !== 'number' || position.offset < 0 || position.offset > 1) {
-                throw new TypeError(`Room '${roomId}' door '${doorName}' offset must be a number between 0 and 1`);
-            }
-            return;
-        }
-        throw new TypeError(`Room '${roomId}' door '${doorName}' position must have either { x, y } or { edge, offset }`);
-    }
-
+    
     /**
      * Calculates room-relative spatial coordinates from an edge position definition.
      * Retained for backward compatibility — used by _normalizePosition() to convert

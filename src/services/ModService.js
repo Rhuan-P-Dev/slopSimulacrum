@@ -183,14 +183,21 @@ export class ModService {
      *   asked by `requestApply()` before it swaps a definition, so an operator's
      *   "apply now" cannot land in the middle of a round (`CR D-6`). Absent means
      *   "no round is open" - a test, or a world built without a turn system.
+     * @param {(swappedKinds: Array<string>) => (Object|null)} [options.afterSwap] - What the
+     *   running world does with a definition it has just taken on. Called by `applyNow()`
+     *   after a successful swap with the kinds that changed; whatever it returns rides along
+     *   in the apply report as `map`. Absent means nothing downstream cares. A plain
+     *   callback for the same reason `roundGate` is one: the map lives in
+     *   `RoomsController`, and this module stays the package manager (`CR B-1`).
      */
-    constructor({ registryStore, loader = new ModLoader(), stateStore = null, roundGate = null } = {}) {
+    constructor({ registryStore, loader = new ModLoader(), stateStore = null, roundGate = null, afterSwap = null } = {}) {
         if (!registryStore || typeof registryStore.read !== 'function') {
             throw new TypeError('ModService: registryStore is required');
         }
         this.registryStore = registryStore;
         this.loader = loader;
         this.roundGate = roundGate;
+        this.afterSwap = afterSwap;
         this.stateStore = stateStore ?? {
             load: () => DataLoader.loadModState(),
             save: (state) => DataLoader.saveModState(state)
@@ -740,13 +747,34 @@ export class ModService {
         const built = this.loader.build(discovered);
         const { valid, quarantined } = classifyComposition(built.registries);
         const swapped = this.registryStore.replace(valid);
+
+        // The swap installed the definition; what the running world makes of it is the
+        // caller's business. The composition root wires this to the map, so a room that was
+        // just authored becomes a room the live world has, at the same moment the definition
+        // moved - and at no other moment (`wiki/decisions/world-structure-authoring.md`).
+        // Guarded: the definition is already swapped, and a downstream step that throws must
+        // not turn a successful apply into a reported failure. It names itself in the report
+        // instead (`CR E-1`, and never a silent swallow).
+        let map = null;
+        let mapError = null;
+        if (typeof this.afterSwap === 'function' && swapped.swappedKinds.length > 0) {
+            try {
+                map = this.afterSwap(swapped.swappedKinds) ?? null;
+            } catch (error) {
+                mapError = error?.message ?? String(error);
+                Logger.warn(`[ModService] post-swap step failed: ${mapError}`);
+            }
+        }
+
         return {
             ok: true,
             version: swapped.version,
             swappedKinds: swapped.swappedKinds,
             quarantined,
             mods: discovered.filter((mod) => mod.enabled !== false).length,
-            unsafeKeys: built.unsafeKeys
+            unsafeKeys: built.unsafeKeys,
+            map,
+            mapError
         };
     }
 

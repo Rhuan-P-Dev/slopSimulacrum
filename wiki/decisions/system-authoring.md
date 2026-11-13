@@ -41,11 +41,19 @@ operator wish
   -> POST /mods/apply (the existing verb)      -> swaps at the round boundary, or defers
 ```
 
-**1. The System authors content, never the map.** `AUTHORABLE_KINDS` is every registry kind
-except the world family — `rooms`, `world`, `worldRules`, `worldObjects` are refused with a
-named reason. A component, an item, a verb, a recipe, a machine, a body: yes. Reshaping the
-world the simulation runs in is a hand decision with different rules, and the model is told
-to say so rather than approximate it.
+**1. The System authors content — and, since
+[`world-structure-authoring.md`](./world-structure-authoring.md), the map too.**
+`AUTHORABLE_KINDS` was every registry kind except the world family: `rooms`, `world`,
+`worldRules` and `worldObjects` refused with a named reason, because reshaping the world the
+simulation runs in is a hand decision with different rules, and a model should say so rather
+than approximate it. That held until the owner asked the System to create rooms and props.
+What made the map safe to author was not a wider permission but machinery this feature
+already had: the room rules `RoomsController` enforces at boot became one shared module
+(`WorldStructureRules`), so a room is refused in the conversation with the sentence the boot
+path would say tomorrow, and an applied room joins the running map **additively** — an
+installed room is never moved, renamed, resized or removed by a swap. `world` and
+`worldRules` are still refused, with their reasons in the note. Read that note before editing
+this list.
 
 **2. The server owns the package identity.** The model proposes a slug; the server writes
 `system-<slug>` and refuses the reserved `core-` prefix outright (`MOD_ID_PATTERN`, checked
@@ -169,8 +177,10 @@ validates), and the token cost per turn does not grow with how much the model re
    the Write button is wiring, not design.
 4. **Persistence of the conversation**, if it ever matters across restarts. Deliberately not
    built: an ever-growing JSON file of chat text is what `P-8` calls a log in a data file.
-5. **The map**, if the owner ever wants the System to touch `rooms`/`worldObjects`. That
-   needs a plan-and-preview step the current proposal shape does not have.
+5. ~~**The map**, if the owner ever wants the System to touch `rooms`/`worldObjects`.~~
+   Built, and the predicted blocker did not arrive: the plan step was already there — the
+   classifier at the candidate, and the live plan. What the preview turned out to be is the
+   rule list. See [`world-structure-authoring.md`](./world-structure-authoring.md).
 
 ## Rule touchpoints
 

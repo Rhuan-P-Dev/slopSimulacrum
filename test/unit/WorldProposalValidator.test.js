@@ -3,9 +3,10 @@
  *
  * The controller tests cover the conversational path (a refusal goes back to the model);
  * this file pins the rules themselves, because they are the boundary between "an operator
- * asked" and "bytes land in data/mods/": the id the server owns, the kind allowlist that
- * keeps the map out of it, the caps that keep one proposal from becoming a world dump, the
- * unsafe keys, and the override report that makes shadowing official content visible.
+ * asked" and "bytes land in data/mods/": the id the server owns, the kind allowlist (`world`
+ * and `worldRules` stay out; the map is content), the caps that keep one proposal from
+ * becoming a world dump, the unsafe keys, and the override report that makes shadowing
+ * official content visible.
  *
  * The live definition is a `RegistryStore` of a handful of entries, so the composition
  * check runs for real (`TST-3`: no provider, no world boot).
@@ -84,6 +85,72 @@ describe('validateProposal — the kind allowlist', () => {
         expect(proposal.added).toEqual([{ kind: REGISTRY_KINDS.COMPONENTS, key: 'salvagePlate' }]);
         expect(proposal.overrides).toEqual([]);
         expect(AUTHORABLE_KINDS.length).toBeGreaterThan(0);
+    });
+});
+
+describe('validateProposal — the map is content', () => {
+    /** A room hung off the store's `start_room`, so every reference resolves. */
+    const room = (over = {}) => ({
+        name: 'Annex',
+        connections: { back: { target: 'start_room' } },
+        x: 400,
+        y: 0,
+        width: 200,
+        height: 200,
+        ...over
+    });
+
+    const mapStore = () => new RegistryStore({
+        [REGISTRY_KINDS.ROOMS]: { start_room: { name: 'Start', connections: {}, x: 0, y: 0, width: 300, height: 200 } },
+        [REGISTRY_KINDS.BLUEPRINTS]: { tree: { name: 'Tree' } }
+    });
+
+    const author = (content) => validateProposal(
+        { packageId: 'annex', description: 'An annex off the start room.', content },
+        { registryStore: mapStore() }
+    );
+
+    it('authors a room and the prop that stands in it', () => {
+        const proposal = author({
+            [REGISTRY_KINDS.ROOMS]: { annex: room() },
+            [REGISTRY_KINDS.WORLD_OBJECTS]: { bench: { name: 'Bench', blueprint: 'tree', room: 'annex', position: { x: 0, y: -40 } } }
+        });
+
+        expect(proposal.added).toEqual([
+            { kind: REGISTRY_KINDS.ROOMS, key: 'annex' },
+            { kind: REGISTRY_KINDS.WORLD_OBJECTS, key: 'bench' }
+        ]);
+        expect(proposal.overrides).toEqual([]);
+    });
+
+    it('refuses the room the map cannot be built from, in boot\'s own words', () => {
+        expect(() => author({ [REGISTRY_KINDS.ROOMS]: { annex: { name: 'Annex', connections: {}, x: 1 } } }))
+            .toThrow(/must have numeric width, height/);
+    });
+
+    it('refuses a room connected to a room neither the package nor the world holds', () => {
+        expect(() => author({ [REGISTRY_KINDS.ROOMS]: { annex: room({ connections: { back: { target: 'nowhere' } } }) } }))
+            .toThrow(/targets unknown room 'nowhere'/);
+    });
+
+    it('refuses a prop pointing at a blueprint or a room that is not there', () => {
+        expect(() => author({ [REGISTRY_KINDS.WORLD_OBJECTS]: { bench: { blueprint: 'unobtainium', room: 'start_room' } } }))
+            .toThrow(/unknown blueprint 'unobtainium'/);
+        expect(() => author({ [REGISTRY_KINDS.WORLD_OBJECTS]: { bench: { blueprint: 'tree', room: 'nowhere' } } }))
+            .toThrow(/unknown room 'nowhere'/);
+    });
+
+    it('reports a room that shadows an official one as an override, and says nothing about the map', () => {
+        // Redefining an installed room is legal data (that is how mods shadow), and the
+        // operator reads it in `overrides` before clicking. What the running map does with
+        // it is the other half: nothing at all, until a boot builds the room from scratch
+        // (`wiki/decisions/world-structure-authoring.md`).
+        const proposal = author({
+            [REGISTRY_KINDS.ROOMS]: { start_room: { name: 'Renamed Start', connections: {}, x: 0, y: 0, width: 300, height: 200 } }
+        });
+
+        expect(proposal.overrides).toEqual([{ kind: REGISTRY_KINDS.ROOMS, key: 'start_room' }]);
+        expect(proposal.added).toEqual([]);
     });
 });
 

@@ -22,13 +22,16 @@
  * SURVIVED, so a recipe quarantined for a bad material takes its machine down with it and
  * the report says so — which is the "missing dependency" row of the decision table.
  *
- * WHAT IT DOES NOT COVER. `worldRules`, `traits`, `rooms`, `entityAttributes`,
- * `sensitiveParts`, `internalComponents`, `world`, `worldObjects` and `synergy` have no
- * cross-definition rule at boot today, so there is nothing to classify: they pass
- * through. `KnowledgeController` also validates at boot, but it validates a codex it
- * DERIVES from registries this classifier already classified; a defect there costs a
- * documentation page, not a world capability, so it is not a quarantine rule. Adding a
- * rule to an owner means adding it here — and the fixture test pins that the chain fires.
+ * WHAT IT DOES NOT COVER. `worldRules`, `traits`, `entityAttributes`,
+ * `sensitiveParts`, `internalComponents`, `world` and `synergy` have no cross-definition
+ * rule at boot today, so there is nothing to classify: they pass through. `rooms` and
+ * `worldObjects` ARE classified now (section 5) — they are the two world-structure kinds
+ * somebody may author, and a room the map cannot be built from is a crash at the next
+ * boot, so it has to be refused at the candidate. `KnowledgeController` also validates at
+ * boot, but it validates a codex it DERIVES from registries this classifier already
+ * classified; a defect there costs a documentation page, not a world capability, so it is
+ * not a quarantine rule. Adding a rule to an owner means adding it here — and the fixture
+ * test pins that the chain fires.
  *
  * QUARANTINE IS PER DEFINITION AND NAMED. Never a whole registry when one definition is
  * bad, never silent, never a `{}` default (`AP-3`). The only registry-scope entries are
@@ -45,6 +48,11 @@ import MachineRegistryController from '../controllers/core/MachineRegistryContro
 import { REGISTRY_KINDS } from '../../shared/RegistryKinds.js';
 import { narrowVisualBlock } from '../utils/materialLook.js';
 import { validateOutfitRegistry } from '../controllers/logic/OutfitLogic.js';
+import {
+    roomDefinitionErrors,
+    roomDefinitionsErrors,
+    worldObjectDefinitionErrors
+} from './WorldStructureRules.js';
 
 /** Where a quarantine applies: one definition, or a registry that cannot be used. */
 export const QUARANTINE_SCOPE = Object.freeze({
@@ -199,6 +207,42 @@ export function classifyComposition(candidate = {}) {
                 valid[REGISTRY_KINDS.CRAFTING] ?? {}
             ));
             if (reason) quarantine(REGISTRY_KINDS.MACHINES, key, QUARANTINE_SCOPE.DEFINITION, reason);
+        }
+    }
+
+    // ---- 5. The map and its props, against each other ----------------------
+    // A room is data a spatial model is built from, and a prop is an entity built from a
+    // blueprint inside one of those rooms. Both are authorable, and a room the map cannot
+    // be built from is a boot that refuses to start (`RoomsController` throws), so the
+    // candidate — not the swap, and certainly not the next process start — is where a bad
+    // one is refused. The rules ARE the boot rules (`WorldStructureRules`), so the plan,
+    // the System's proposal and a cold start answer with one set of texts (`CR T-2`).
+    // Rooms first: a prop's `room` and a room's connection target are checked against the
+    // rooms that SURVIVED, so a prop pointing at a quarantined room goes down with it,
+    // named — the missing-dependency row of the decision table.
+    const rooms = valid[REGISTRY_KINDS.ROOMS] ?? {};
+    const roomKeys = Object.keys(rooms);
+    if (roomKeys.length > 0) {
+        const roomFailure = roomDefinitionsErrors(rooms, { knownLogicalIds: roomKeys });
+        if (roomFailure.length > 0) {
+            for (const key of roomKeys) {
+                if (isMetadataKey(key)) continue;
+                const reasons = roomDefinitionErrors(key, rooms[key], { knownLogicalIds: roomKeys });
+                if (reasons.length > 0) {
+                    quarantine(REGISTRY_KINDS.ROOMS, key, QUARANTINE_SCOPE.DEFINITION, reasons.join('; '));
+                }
+            }
+        }
+    }
+
+    for (const [key, def] of Object.entries(valid[REGISTRY_KINDS.WORLD_OBJECTS] ?? {})) {
+        if (isMetadataKey(key)) continue;
+        const reasons = worldObjectDefinitionErrors(key, def, {
+            blueprints: valid[REGISTRY_KINDS.BLUEPRINTS] ?? {},
+            rooms: Object.keys(valid[REGISTRY_KINDS.ROOMS] ?? {})
+        });
+        if (reasons.length > 0) {
+            quarantine(REGISTRY_KINDS.WORLD_OBJECTS, key, QUARANTINE_SCOPE.DEFINITION, reasons.join('; '));
         }
     }
 

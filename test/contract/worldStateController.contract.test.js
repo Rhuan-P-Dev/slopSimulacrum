@@ -238,6 +238,11 @@ describe('WorldStateController public method surface', () => {
         'cleanupInternalComponents',
         'computeSynergy',
         'craftItems',
+        // Added deliberately (wiki/decisions/world-structure-authoring.md): add a room to a
+        // RUNNING map and open the door that makes it reachable. The map is additive — an
+        // installed room is never moved, renamed or re-linked — and RoomsController owns the
+        // shape rules, the uid and the door pair; the facade only marks perception dirty.
+        'createRoom',
         'despawnEntity',
  // Added deliberately (wiki/subMDs/systems/energy_flow.md): closes the flow
         // broadcast scope with at most one full-state broadcast.
@@ -328,6 +333,10 @@ describe('WorldStateController public method surface', () => {
         // in the round the agent is in and nothing else. GET /rooms/:roomId/chat
         // keeps the stateless tail above.
         'getRoomChatMessagesForRound',
+        // The reverse of getRoomUidByLogicalId: the key the `rooms` registry reads, for a
+        // room uid. Both vocabularies exist (the world runs on uids, the definition names
+        // keys) and the System's console shows them side by side.
+        'getRoomLogicalId',
         'getRoomUidByLogicalId',
         'getRooms',
         'getSynergyConfig',
@@ -386,6 +395,10 @@ describe('WorldStateController public method surface', () => {
         // updateComponentStatDelta facade API.
         'setEntityAttributeDelta',
         'spawnEntity',
+        // Added deliberately (wiki/decisions/world-structure-authoring.md): spawn one prop
+        // into a running room — the same isStatic spawn `_spawnStaticProps` uses at boot, so
+        // boot and the System's live plan cannot produce two kinds of prop (CR CHG-2).
+        'spawnWorldObject',
         // Added deliberately (README §World lifecycle): the two operator actions of
         // one world - create it and run it, stand it down - delegated to
         // WorldRecreateLogic like `recreateWorld` is. The tick, not the routes, is

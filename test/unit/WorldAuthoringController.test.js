@@ -10,7 +10,10 @@
  *   - the tool loop answers every tool call and stops at the model's prose answer;
  *   - `propose_mod` runs the real validator, so a rule refusal goes back to the model as
  *     data (the turn continues) and NOT as a stored proposal;
- *   - the world structure kinds are refused;
+ *   - `world` and `worldRules` are refused as not-content, while the map (`rooms`,
+ *     `worldObjects`) IS authored — under the rules boot enforces, so a room that would
+ *     refuse to load tomorrow is refused in the conversation today;
+ *     `wiki/decisions/world-structure-authoring.md`;
  *   - the replayed history is wishes and replies only (`RP-3`) — tool traffic is answered
  *     to the caller, never replayed; and the cap drops the oldest with a log;
  *   - a session is minted at the edge and bounded in memory (`A-7`);
@@ -42,8 +45,22 @@ function makeStore(overrides = {}) {
         [REGISTRY_KINDS.MATERIALS]: { steel: { name: 'Steel', density: 7.8, properties: {} } },
         [REGISTRY_KINDS.COMPONENTS]: { hull: { name: 'Hull', form: { volume: 4 }, materials: [{ material: 'steel', fraction: 1 }] } },
         [REGISTRY_KINDS.INVENTORY_ITEMS]: {},
+        // A prop's blueprint has to resolve against the definition, so the fake holds one
+        // (the classifier refuses a prop that points at nothing, as it should).
+        [REGISTRY_KINDS.BLUEPRINTS]: { tree: { name: 'Tree', components: {} } },
         [REGISTRY_KINDS.ACTIONS]: { move: { description: 'Advance.' } },
-        [REGISTRY_KINDS.ROOMS]: { workshop: { name: 'Workshop' } },
+        // A room the map could actually be built from — the rules in `WorldStructureRules`
+        // are real rules now, so the fake holds a real room, not a name.
+        [REGISTRY_KINDS.ROOMS]: {
+            workshop: {
+                name: 'Workshop',
+                connections: {},
+                x: 0,
+                y: 0,
+                width: 300,
+                height: 200
+            }
+        },
         ...overrides
     });
 }
@@ -303,27 +320,73 @@ describe('WorldAuthoringController — proposing', () => {
         expect(turn.proposal.added).toEqual([{ kind: REGISTRY_KINDS.COMPONENTS, key: 'salvagePlate' }]);
     });
 
-    it('refuses the world structure kinds, and lets the model try again in the same turn', async () => {
+    it('refuses the kinds that are not content, and lets the model try again in the same turn', async () => {
         // (two tool calls in one answer are both answered before the next provider call,
         // and answered in the order they came — the protocol order the seam validates)
-        const mapProposal = {
-            packageId: 'new-map',
-            description: 'A new room.',
-            content: { [REGISTRY_KINDS.ROOMS]: { lab: { name: 'Lab' } } }
+        const rulesProposal = {
+            packageId: 'new-rules',
+            description: 'A rule that drains every droid each turn.',
+            content: { [REGISTRY_KINDS.WORLD_RULES]: { drain: { on: 'turn', do: 'drain' } } }
         };
         const seam = makeSeam([
-            toolAnswer('propose_mod', mapProposal, 'a'),
+            toolAnswer('propose_mod', rulesProposal, 'a'),
             toolAnswer('propose_mod', legalProposal(), 'b'),
-            proseAnswer('I cannot redraw the map; I proposed a component instead.')
+            proseAnswer('I cannot install world rules; I proposed a component instead.')
         ]);
         const controller = new WorldAuthoringController({ llmController: seam, registryStore: makeStore(), writer: makeWriterSpy() });
 
-        const turn = await controller.handleChat({ message: 'redraw the map, or do what you can' });
+        const turn = await controller.handleChat({ message: 'add a world rule, or do what you can' });
 
         expect(turn.toolLog[0]).toMatchObject({ name: 'propose_mod', ok: false });
         expect(turn.toolLog[0].detail).toContain('world structure');
         expect(turn.toolLog[1].ok).toBe(true);
         expect(turn.proposal).toMatchObject({ packageId: 'system-salvage-plate' });
+    });
+
+    it('authors a room into a package, and refuses one the map cannot be built from', async () => {
+        // The map is content now. What makes a room acceptable is not a new opinion: it is
+        // the shape `RoomsController` needs at boot, so a model is refused here with the
+        // sentence the boot path would say tomorrow (`CR T-2`).
+        const seam = makeSeam([
+            toolAnswer('propose_mod', {
+                packageId: 'lab-annex',
+                description: 'A lab annex off the workshop.',
+                content: { [REGISTRY_KINDS.ROOMS]: { lab: { name: 'Lab' } } }
+            }, 'a'),
+            toolAnswer('propose_mod', {
+                packageId: 'lab-annex',
+                description: 'A lab annex off the workshop.',
+                content: {
+                    [REGISTRY_KINDS.ROOMS]: {
+                        lab: {
+                            name: 'Lab',
+                            connections: { door_back: { target: 'workshop' } },
+                            x: 400,
+                            y: 0,
+                            width: 200,
+                            height: 200
+                        }
+                    },
+                    [REGISTRY_KINDS.WORLD_OBJECTS]: {
+                        labBench: { name: 'Lab Bench', blueprint: 'tree', room: 'lab', position: { x: 0, y: 0 } }
+                    }
+                }
+            }, 'b'),
+            proseAnswer('The annex and its bench are on the table.')
+        ]);
+        const controller = new WorldAuthoringController({ llmController: seam, registryStore: makeStore(), writer: makeWriterSpy() });
+
+        const turn = await controller.handleChat({ message: 'open a lab with a bench in it' });
+
+        expect(turn.toolLog[0].ok).toBe(false);
+        expect(turn.toolLog[0].detail).toContain("Room 'lab' must have a connections object");
+        expect(turn.proposal).toMatchObject({
+            packageId: 'system-lab-annex',
+            added: [
+                { kind: REGISTRY_KINDS.ROOMS, key: 'lab' },
+                { kind: REGISTRY_KINDS.WORLD_OBJECTS, key: 'labBench' }
+            ]
+        });
     });
 
     it('sends the world\'s own composition rule back to the model so it can fix the reference', async () => {

@@ -12,9 +12,12 @@
  * WHAT IT CHECKS, and why each one is here and not elsewhere:
  *   - the id rules (`SEC-7`): a slug is normalised to `system-<slug>`, so every package
  *     this feature owns is recognisable in `GET /mods` next to the shipped `core-*` ones;
- *   - the kind allowlist: the System authors CONTENT, never the map. `rooms`, `world`,
- *     `worldRules` and `worldObjects` are refused — reshaping the world the simulation
- *     runs in from a chat is a different feature with its own rules;
+ *   - the kind allowlist: `rooms` and `worldObjects` ARE authored here now — a new room
+ *     and a new prop are content, and an applied room becomes part of the running map
+ *     additively (`wiki/decisions/world-structure-authoring.md`). `world` and
+ *     `worldRules` are still refused: one is the shape the world is wrapped in and the
+ *     other installs listeners, neither of which a proposal can reason about; they stay a
+ *     hand decision with different rules.
  *   - the shape caps (`SEC-2`, `A-7`): kinds, definitions, depth and bytes, all named;
  *   - unsafe keys (`ModLoader` refuses them, and a proposal that would be rejected at
  *     the next rescan is rejected here instead);
@@ -44,15 +47,24 @@ import { MOD_ID_PATTERN, OFFICIAL_ID_PREFIX } from './ModLoader.js';
 import { DEFAULT_PACKAGE_VERSION } from './ModPackageWriter.js';
 
 /**
- * Kinds a proposal may never author: the world family. A package can add a component,
- * an item, a verb or a machine; redrawing the map, the world rules or the props is not
- * a content edit but a change of the simulation, and it stays a hand decision.
+ * Kinds a proposal may never author.
+ *
+ * `rooms` and `worldObjects` used to be in this list, and are not any more: a room and a
+ * prop are definitions, and a definition that describes a place is no more dangerous than
+ * one that describes a component — provided the shape rules are the same rules the world
+ * enforces at boot. They are: `WorldStructureRules`, run through `classifyComposition`
+ * below, so a room that would refuse to load tomorrow is refused in this conversation
+ * today, with the same sentence.
+ *
+ * What stays refused is the two kinds a proposal cannot reason about. `world` is the shape
+ * the world is wrapped in, not something inside it; `worldRules` install listeners, which
+ * is behavior — and a data-only proposal that could install behavior would be a different
+ * security story than the one this feature tells (`wiki/decisions/mod-system.md`,
+ * decision 1). Both remain a hand edit with different rules.
  */
 export const NON_AUTHORABLE_KINDS = Object.freeze([
-    REGISTRY_KINDS.ROOMS,
     REGISTRY_KINDS.WORLD,
-    REGISTRY_KINDS.WORLD_RULES,
-    REGISTRY_KINDS.WORLD_OBJECTS
+    REGISTRY_KINDS.WORLD_RULES
 ]);
 
 /**

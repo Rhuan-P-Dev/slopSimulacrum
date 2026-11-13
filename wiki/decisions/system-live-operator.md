@@ -82,6 +82,14 @@ The full set:
   `handlePlaceMachine` / `handleRetrieveMachine` handlers, as the routes use them).
 - **World:** `start_world` (`startWorld`), `stop_world` (`stopWorld`),
   `recreate_world` (`recreateWorld`).
+- **The map** (added by
+  [`world-structure-authoring.md`](./world-structure-authoring.md)):
+  `create_room` (`createRoom` -> `RoomsController.addRoom` + `connectRooms`; `connectFrom`
+  is mandatory and the door opens both ways, so nothing is stranded) and
+  `spawn_world_object` (`spawnWorldObject` -> the same isStatic spawn `_spawnStaticProps`
+  uses at boot, so there is one kind of prop). Both are **memory only**: a restart rebuilds
+  the map from the packages, and neither operation ever moves, renames or removes an
+  installed room.
 
 ### 4. Live reads
 
@@ -92,7 +100,9 @@ Three new tools read the *running* world (the existing `list_registries` /
 - `inspect_entity` — one entity: components (with current stats, incl. existence),
   organs, items, location. This is what lets the model target "this entity's
   `Physical.existence`".
-- `list_rooms` — bounded room list.
+- `list_rooms` — bounded room list, answering with **both** vocabularies a room has (the
+  live `id` the world runs on, and the `logicalId` the `rooms` registry reads) plus the
+  door names each room has, so a `create_room` proposal can name a target that exists.
 
 The model already reads the *definition* vocabulary (blueprints, item types, internal
 component types, recipes, machines, actions, stat names) through the existing registry
@@ -127,9 +137,11 @@ every string on the card is server data, written with `textContent`, never model
 - `RP-1` / `RP-2` — one prompt kind (`system-authoring`), version bumped.
 - `A-7` — the in-memory plan and sessions are bounded (existing `MAX_SESSIONS`/trim);
   plans are cleared on execute and on new-chat.
-- The world facade gains exactly one deliberate public method
+- The world facade gained exactly one deliberate public method here
   (`setComponentStat`), recorded as a purposeful addition in
-  `test/contract/worldStateController.contract.test.js`.
+  `test/contract/worldStateController.contract.test.js`. The map change added three more
+  (`createRoom`, `spawnWorldObject`, `getRoomLogicalId`), each pinned in the same contract
+  test and argued for in [`world-structure-authoring.md`](./world-structure-authoring.md).
 
 ## What it does NOT do
 

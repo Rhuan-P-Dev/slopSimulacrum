@@ -248,7 +248,7 @@ malformed official file stops the server rather than booting a world with holes 
 | POST   | `/mods/:id/enable`  | Enable an installed package. `{ success, id, enabled, pending, appliesAt }`. Rate limited (it writes a file). |
 | POST   | `/mods/:id/disable` | Disable an installed package; same envelope. Idempotent. Unknown id → `404 MOD_NOT_FOUND`. |
 | POST   | `/mods/:id/move` | Body `{ "direction": "up" \| "down" }`. One slot in the stack (`up` composes earlier and loses a shared key, `down` composes last and wins one). `{ success, id, moved, direction, rank, total, loadOrder, previousLoadOrder, pending, appliesAt, shadowChanged, shadowChangedTruncated }`. `409` for `MOD_MOVE_AT_EDGE` / `MOD_MOVE_BREAKS_REQUIRES`, `400` for `MOD_MOVE_DIRECTION_INVALID`. Rate limited (it writes a file). |
-| POST   | `/mods/apply`     | Ask for the packages on disk to become the world's definition now. A round open → `{ applied: false, pending: true, appliesAt, reason: "ROUND_ACTIVE" }` (a deferral, not a failure). No round open → `{ applied: true, report: { ok, version, swappedKinds, quarantined, mods, unsafeKeys } }`. |
+| POST   | `/mods/apply`     | Ask for the packages on disk to become the world's definition now. A round open → `{ applied: false, pending: true, appliesAt, reason: "ROUND_ACTIVE" }` (a deferral, not a failure). No round open → `{ applied: true, report: { ok, version, swappedKinds, quarantined, mods, unsafeKeys, map, mapError } }`. `map` is what the running map made of a swap that wrote `rooms` (`{ added, doorsAdded, skipped }`), `mapError` names itself if that step failed — a swapped definition is still reported as swapped. |
 | GET    | `/mods/:id/files` | The package's own files as they are on disk: `{ id, dir, manifest, files: [{ name, kind, json, content }] }`, `kind` being the registry a JSON file feeds. The "why is my definition quarantined" view. Unknown id → `404`. |
 
 `pending: true` is the normal success answer, not a warning: the change is written to
@@ -258,6 +258,18 @@ the change stays pending — and the file already says what the next boot will d
 server boots idle (`README §World lifecycle`), that is the ordinary state of a server nobody
 has created a world on yet: a change queued from the Mods screen waits, and lands on the
 first round of the world you then create.
+
+An apply that wrote `rooms` also grows the **running map**, additively: a room key the map
+does not have is installed (fresh id, doors resolved), and a room it does have is never
+moved, resized, renamed, re-linked or removed — its id is what every entity location and
+every broadcast already names. So a package that adds a room works without a restart, while a
+package that *renames or deletes* one takes effect at the next boot, and disabling the package
+that authored a room leaves the live room standing until then. `worldObjects` are population,
+not map: a prop authored into a package appears when a world is created (like an NPC does),
+and the live lever for "put one there now" is the System's `spawn_world_object`. The shape
+rules of both are the boot rules (`src/services/WorldStructureRules.js`), so a malformed room
+is refused in a plan, in a proposal, and at a cold start — with the same sentence. See
+`wiki/decisions/world-structure-authoring.md`.
 
 The paths carry no `/api` prefix: routes are mounted at `/`, same as the rest of the
 server (`src/routes/index.js`).

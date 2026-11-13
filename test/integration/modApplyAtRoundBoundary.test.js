@@ -10,7 +10,10 @@
  *   - `disable` changes the wish and NOT the world (`pending`, definition untouched);
  *   - the FIRST round start swaps the definition — the content is gone from the store every
  *     controller reads, and the store version moved;
- *   - the official content survives both steps.
+ *   - the official content survives both steps; and
+ *   - the map grows with the definition that describes it: a room authored in a package is
+ *     a room of the RUNNING world after the swap, and a room already there is never moved,
+ *     resized or removed by one (`wiki/decisions/world-structure-authoring.md`).
  *
  * The package directory is the real `data/mods` tree, copied into a temp dir, with the
  * fixture package added to the copy: a fixture package alone would not be a world at all
@@ -33,6 +36,21 @@ import { REGISTRY_KINDS } from '../../shared/RegistryKinds.js';
 const MOD_ID = 'itest-boundary';
 const PART = 'itestBoundaryPart';
 const COMPONENT_KIND = REGISTRY_KINDS.COMPONENTS;
+
+/** The package that authors a room, and the room it authors. */
+const ROOM_MOD_ID = 'itest-annex';
+const ANNEX = 'itest_annex';
+
+/** A room the map can be built from, hung off the official `start_room`. */
+const annexRoom = () => ({
+    name: 'Integration Annex',
+    connections: { back_to_start: { target: 'start_room' } },
+    x: 900,
+    y: 400,
+    width: 220,
+    height: 160,
+    atmosphere: { lightLevel: 'dim', airQuality: 'stale' }
+});
 
 /** A well-formed component: the shape the official catalog ships. */
 const part = () => ({
@@ -67,6 +85,9 @@ function writePackage(id, files) {
 }
 
 writePackage(MOD_ID, { [COMPONENT_KIND]: { [PART]: part() } });
+// Installed at boot, so the map has the annex from the start — the test that grows the map
+// writes a SECOND room package after the world is already running.
+writePackage(ROOM_MOD_ID, { [REGISTRY_KINDS.ROOMS]: { [ANNEX]: annexRoom() } });
 
 afterAll(() => {
     fs.rmSync(tmpBase, { recursive: true, force: true });
@@ -89,6 +110,7 @@ function buildWorld() {
         modStateStore: memState()
     });
     return {
+        wsc: built.worldStateController,
         store: built.registryStore,
         modService: built.modService,
         tick,
@@ -214,6 +236,57 @@ describe('the official dependency graph', () => {
         const removed = plan.kinds.find((kind) => kind.kind === REGISTRY_KINDS.MATERIALS);
         expect(removed && removed.removedCount).toBeGreaterThan(0);
         expect(store.read(REGISTRY_KINDS.MATERIALS).wood).toBeDefined();  // still pending, not applied
+    });
+});
+
+describe('the map grows with the definition', () => {
+    it('builds an authored room at boot, connected to the official map', () => {
+        const { wsc } = buildWorld();
+
+        const annexUid = wsc.getRoomUidByLogicalId(ANNEX);
+        expect(annexUid).toBeTruthy();
+        const rooms = wsc.getRooms();
+        expect(rooms[annexUid].name).toBe('Integration Annex');
+        expect(rooms[annexUid].connections.back_to_start.target)
+            .toBe(wsc.getRoomUidByLogicalId('start_room'));
+        expect(wsc.getRoomLogicalId(annexUid)).toBe(ANNEX);
+    });
+
+    it('takes on a room written after boot, at the swap, and reports what the map did', () => {
+        const { wsc, modService } = buildWorld();
+        const before = wsc.getRooms();
+        const beforeUids = Object.keys(before);
+
+        // A package appears on disk while the world runs — the operator's Write click, or a
+        // hand-authored directory. Nothing has been applied yet.
+        writePackage('itest-late-annex', {
+            [REGISTRY_KINDS.ROOMS]: { itest_late: { ...annexRoom(), name: 'Late Annex', x: 1200, y: 0 } }
+        });
+        const answer = modService.requestApply();
+
+        expect(answer.applied).toBe(true);
+        const lateUid = wsc.getRoomUidByLogicalId('itest_late');
+        expect(lateUid).toBeTruthy();
+        expect(wsc.getRooms()[lateUid].name).toBe('Late Annex');
+        expect(Object.keys(wsc.getRooms())).toHaveLength(beforeUids.length + 1);
+        expect(answer.report.map.added).toEqual([{ logicalId: 'itest_late', roomId: lateUid }]);
+    });
+
+    it('never removes, moves or renames an installed room — not even when its package goes away', () => {
+        const { wsc, store, modService, tick, turns } = buildWorld();
+        const annexUid = wsc.getRoomUidByLogicalId(ANNEX);
+        const atBoot = wsc.getRooms()[annexUid];
+
+        expect(modService.disable(ROOM_MOD_ID)).toMatchObject({ enabled: false, pending: true });
+        openRound(tick, turns);
+
+        // The definition no longer describes the room — and the running map keeps it. The
+        // uid is where entities stand and what this round already named; a swap that edited
+        // or deleted it would be a corruption, not an update. The room is gone at the next
+        // boot, which is what "additive only" costs, said out loud.
+        expect(store.read(REGISTRY_KINDS.ROOMS)[ANNEX]).toBeUndefined();
+        const stillThere = wsc.getRooms()[annexUid];
+        expect(stillThere).toEqual(atBoot);
     });
 });
 

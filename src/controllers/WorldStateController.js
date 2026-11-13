@@ -339,23 +339,22 @@ class WorldStateController {
                     continue;
                 }
 
-                const entityId = this.stateEntityController.spawnEntity(blueprint, roomUid, {
-                    isStatic: true,
-                    name
+                // One path from a prop definition to a prop in a room: the same spawn the
+                // runtime lever uses, so a boot and a `spawn_world_object` action cannot
+                // drift into two kinds of prop (`CR CHG-2`).
+                const entityId = this.spawnWorldObject({
+                    blueprint,
+                    roomId: roomUid,
+                    name,
+                    position: entry.position ?? null
                 });
                 if (!entityId) {
                     Logger.warn(`[WorldStateController] World object spawn failed for blueprint "${blueprint}".`);
                     continue;
                 }
 
-                // Room-relative position (room center is {0,0}). Absent → center.
-                const pos = entry.position && typeof entry.position === 'object'
-                    ? { x: Number(entry.position.x) || 0, y: Number(entry.position.y) || 0 }
-                    : { x: 0, y: 0 };
-                this.stateEntityController.updateEntitySpatial(entityId, pos);
-
                 count++;
-                Logger.info(`[WorldStateController] World object spawned: "${name}" (${blueprint}) in room "${roomLogicalId}" as static entity ${entityId} at (${pos.x}, ${pos.y}).`);
+                Logger.info(`[WorldStateController] World object spawned: "${name}" (${blueprint}) in room "${roomLogicalId}" as static entity ${entityId}.`);
             } catch (error) {
                 Logger.error(`[WorldStateController] World object spawn failed for "${key}": ${error.message}`);
             }
@@ -847,6 +846,81 @@ class WorldStateController {
     }
 
     /**
+     * Spawn one world object (a prop) into a room that already exists.
+     *
+     * A prop is a real entity built from a blueprint, tagged `isStatic`: excluded from the
+     * turn roster, so it never plans, never signals and never gates the all-ready planning
+     * barrier — the invariant `_spawnStaticProps` states for the boot pass, which now calls
+     * this same method (one spawn, two moments: boot and the System's live plan). Because it
+     * is an entity, its matter is real and targetable by the normal damage pipeline.
+     *
+     * @param {Object} options
+     * @param {string} options.blueprint - a blueprint key of the live definition
+     * @param {string} options.roomId - the room to place it in (a room uid)
+     * @param {string|null} [options.name] - display name; absent means the blueprint key
+     * @param {{x: number, y: number}|null} [options.position] - room-relative point
+     *   (centre is {0,0}); absent or non-numeric means the centre, the boot tolerance kept
+     * @returns {string|null} the new entity id, or null when nothing was spawned
+     */
+    spawnWorldObject({ blueprint, roomId, name = null, position = null } = {}) {
+        const displayName = typeof name === 'string' && name.trim() !== '' ? name : blueprint;
+        const entityId = this.stateEntityController.spawnEntity(blueprint, roomId, {
+            isStatic: true,
+            name: displayName
+        });
+        if (!entityId) return null;
+        this.stateEntityController.updateEntitySpatial(entityId, {
+            x: Number(position?.x) || 0,
+            y: Number(position?.y) || 0
+        });
+        // Perception: a prop appearing in a room is a change a room reader can ask about,
+        // the same way a spawned entity is.
+        this._markPerceptionDirty(roomId);
+        return entityId;
+    }
+
+    /**
+     * Add a room to the running map, and open the door that makes it reachable.
+     *
+     * The facade delegates: `RoomsController` owns the shape rules, the uid and the
+     * additive contract (an installed room is never moved, resized or re-linked, because
+     * its uid is what every entity `location` and every broadcast already named). The door
+     * is opened in both directions there, and both rooms are marked dirty for perception —
+     * a new way in is a change in the room it was opened from too.
+     *
+     * @param {Object} options
+     * @param {string} options.logicalId - the key the `rooms` registry uses for this room
+     * @param {Object} options.definition - the room definition, the shape the registry uses
+     * @param {Object|null} [options.connectFrom] - `{ roomId, door, targetDoor?, position? }`:
+     *   the existing room (`roomId` accepts a uid or a logical key) and the door to open in
+     *   it. Absent leaves the room unreachable except by an explicit move.
+     * @returns {{ logicalId: string, roomId: string, door: string|null, targetDoor: string|null }}
+     * @throws {TypeError} whatever the map refused: a key taken, a shape it cannot build, a
+     *   door name already in use, a source room that does not exist
+     */
+    createRoom({ logicalId, definition, connectFrom = null } = {}) {
+        const { roomId } = this.roomsController.addRoom(logicalId, definition);
+        let door = null;
+        let targetDoor = null;
+        if (connectFrom) {
+            const opened = this.roomsController.connectRooms(
+                connectFrom.roomId,
+                connectFrom.door,
+                logicalId,
+                {
+                    targetDoorName: connectFrom.targetDoor ?? null,
+                    position: connectFrom.position ?? null
+                }
+            );
+            door = opened.door;
+            targetDoor = opened.targetDoor;
+            this._markPerceptionDirty(opened.fromRoomId);
+        }
+        this._markPerceptionDirty(roomId);
+        return { logicalId, roomId, door, targetDoor };
+    }
+
+    /**
      * Despawns an entity and cleans up its capabilities.
      * @param {string} entityId - The entity to despawn.
      * @returns {boolean} True if successful.
@@ -910,6 +984,17 @@ class WorldStateController {
      */
     getRoomUidByLogicalId(logicalId) {
         return this.roomsController.getUidByLogicalId(logicalId);
+    }
+
+    /**
+     * The logical key of a room uid — the key the `rooms` registry reads, and what an
+     * authored room is written under. The reverse of `getRoomUidByLogicalId`, so a reader
+     * holding either vocabulary can name the room in the other (`list_rooms` shows both).
+     * @param {string} roomId - the room uid
+     * @returns {string|null} the logical key, or null when the uid is not a room.
+     */
+    getRoomLogicalId(roomId) {
+        return this.roomsController?.getLogicalId?.(roomId) ?? null;
     }
 
     /**

@@ -36,7 +36,10 @@
  * WHAT IT DOES NOT DO. It never fetches the provider itself (`B-2` — `LLMController` is
  * the one seam), it never writes a file (`ModPackageWriter` does, through the data seam),
  * it never applies or enables anything (`ModService` does), and it never touches the
- * shipped `core-*` content or the world structure kinds (see `WorldProposalValidator`).
+ * shipped `core-*` content, and it never authors `world` or `worldRules` (the kinds
+ * `WorldProposalValidator` refuses). It does author the map — `rooms` and `worldObjects`
+ * are content like any other, checked by the rules the world enforces at boot
+ * (`WorldStructureRules`, `wiki/decisions/world-structure-authoring.md`).
  * Cancellation: the seam owns the one deadline for a provider call (`E-5`,
  * `wiki/decisions/llm-transport.md`), so this controller adds no second timeout knob —
  * exactly the stance `/llm/chat` and `AgentBodyController` take.
@@ -66,7 +69,7 @@ import LLMController from './LLMController.js';
 /** The RP-1 prompt kind. */
 export const PROMPT_KIND = 'system-authoring';
 /** The RP-2 version of that prompt. Bump on any change to `_buildSystemPrompt`. */
-export const PROMPT_VERSION = '2.0.0';
+export const PROMPT_VERSION = '2.1.0';
 
 /**
  * Per-call token cap. 10x the global default, the same reasoning as
@@ -630,7 +633,7 @@ export class WorldAuthoringController {
                             rationale: { type: 'string', description: 'Why this content answers what the operator asked, in the operator\'s terms.' },
                             content: {
                                 type: 'object',
-                                description: `Registry kind -> { key: definition }. Only authorable kinds; the world structure kinds (${NON_AUTHORABLE_KINDS.join(', ')}) are refused.`,
+                                description: 'Registry kind -> { key: definition }. Only authorable kinds; ' + NON_AUTHORABLE_KINDS.join(', ') + ' are refused. For "rooms": the shape the rooms registry already uses, and a new key — an existing room is never rewritten by an apply. For "worldObjects": { name, blueprint, room, position }.',
                                 additionalProperties: { type: 'object' }
                             }
                         },
@@ -996,8 +999,9 @@ export class WorldAuthoringController {
             `You are the System (${PROMPT_KIND} v${PROMPT_VERSION}) of a persistent, data-driven world simulation. You have two levers: (a) author a data-only mod package (persistent definitions, applied at the next round boundary), and (b) propose a LIVE plan of actions that mutates the running world when the operator clicks Execute (POST /system/execute).`,
             'The operator tells you what they want. For each ask, decide whether it is a DEFINITION change (author a package) or a RUNTIME change (propose live actions), or both, and say in your answer which lever you used.',
             '',
-            `AUTHOR definitions (persist; applied at the round boundary). Read the live definition with list_registries / read_registry / find_definitions, then propose_mod. You never write code, never edit the shipped core-* packages, and never change the world structure kinds: ${NON_AUTHORABLE_KINDS.join(', ')}. Authorable kinds: ${AUTHORABLE_KINDS.join(', ')}. This changes what the world is built from, not the running world.`,
-            `ACT on the running world (immediate). See the live state with list_entities / inspect_entity / list_rooms, then propose_action to put an action on the table. The operator runs the plan with Execute; each action is re-validated and executed in order against the current world. A proposal changes nothing by itself.`,
+            `AUTHOR definitions (persist; applied at the round boundary). Read the live definition with list_registries / read_registry / find_definitions, then propose_mod. You never write code and never edit the shipped core-* packages. Kinds refused: ${NON_AUTHORABLE_KINDS.join(', ')} — the shape the world is wrapped in, and the rules that install listeners; neither is content and both stay a hand edit. Authorable kinds: ${AUTHORABLE_KINDS.join(', ')}. This changes what the world is built from, not the running world.`,
+            `AUTHOR THE MAP. "rooms" and "worldObjects" are authorable. A room is additive: applied, a room that does not exist yet joins the running map, and a room that exists is NEVER moved, renamed, resized or re-linked by an apply (its id is where the actors stand) — so author new rooms, do not rewrite existing ones; connect a new room with a connection to a room you have read, or it is unreachable. A world object is { name, blueprint, room, position {x,y} }: the blueprint must be one you read, the room is a room key of the rooms registry, and props appear when the world is created (they are population, so a running world takes them at the next world create; place one now with the live lever instead).`,
+            `ACT on the running world (immediate). See the live state with list_entities / inspect_entity / list_rooms (rooms answer with BOTH the live id and the registry key, plus their door names), then propose_action to put an action on the table. The operator runs the plan with Execute; each action is re-validated and executed in order against the current world. A proposal changes nothing by itself. The live menu includes the map: create_room adds a room and opens a door to an existing one (mandatory, so nothing is stranded), spawn_world_object places a prop now.`,
             '',
             'HOW YOU WORK.',
             `You have ${MAX_TOOL_ITERATIONS} provider calls this turn, and every tool answer says how many are left.`,
@@ -1018,12 +1022,13 @@ export class WorldAuthoringController {
             '- A plan is per-session and outlives this turn. The operator runs it (Execute) or discards it (Clear). Never claim an action has run — the operator must click Execute. After Execute each action answers with a result; if one fails, report it and propose a fix.',
             '- Setting Physical.existence to 0 leaves a component gone in place (its matter vanishes, dependents cascade). remove_component also spills, cascades, cleans up and may eliminate the entity. Choose the one the operator asked for.',
             '- A machine is carried as an item. place_machine materialises it in the world (consumes the item); retrieve_machine brings a placed machine back into the holder.',
+            '- Live map changes are MEMORY ONLY. create_room and spawn_world_object change the world that is running, not the files it restarts from: after a restart the map comes back from the packages. When the operator wants a room to stay, author the same room with propose_mod (kind "rooms") as well, and say which of the two you did.',
             '',
             'WHAT YOU DO NOT DO.',
             '- You do not apply or enable anything. A proposal becomes a package only by the operator Write click, and the world takes it at the next round boundary.',
             '- You do not run actions. A live action executes only when the operator clicks Execute; you propose, the operator runs.',
             '- Your only levers are propose_mod (definitions) and propose_action (the live plan). Nothing else changes the world.',
-            '- If the wish really is about the map, the world rules or the props themselves, say plainly the System does not author those, and say what a content-level alternative would be.',
+            '- The world rules (`worldRules`) and the shape the world is wrapped in (`world`) are not yours. Say plainly that those stay a hand edit, and say what a content-level alternative would be.',
             '- If the wish is impossible with the live tools or with data, say so. No silent approximations.',
             '',
         ].join('\n');

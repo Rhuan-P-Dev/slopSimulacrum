@@ -586,7 +586,17 @@ export function buildWorldState(tickSystem = null, registryStore = null, { modLo
         // open before swapping the definition. The gate is injected as a plain
         // predicate so ModService never learns about turns - the boundary belongs to
         // this graph, not to the package manager (CR B-1).
-        roundGate: () => turnSystemController.isRoundActive()
+        roundGate: () => turnSystemController.isRoundActive(),
+        // The map grows with the definition that describes it — additively, and only when
+        // the swap actually wrote `rooms`. An installed room is never moved or renamed by an
+        // apply, because its uid is what every entity's `location` and every broadcast of
+        // this round already named (`wiki/decisions/world-structure-authoring.md`). Both
+        // moments reach it — the operator's "apply now" and the round boundary — because
+        // there is one swap in this pipeline, and a plain callback keeps the package
+        // manager from learning about rooms (CR B-1).
+        afterSwap: (swappedKinds) => (swappedKinds.includes(REGISTRY_KINDS.ROOMS)
+            ? roomsController.reconcile(store.read(REGISTRY_KINDS.ROOMS))
+            : null)
     });
 
     turnSystemController.setTurnStartHook((round) => {
