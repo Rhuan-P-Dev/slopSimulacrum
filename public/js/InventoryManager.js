@@ -34,6 +34,9 @@ export class InventoryManager {
 
         /** @private {Function|null} Callback to place a carried machine item (App.js wires it). */
         this._placeHandler = null;
+        // The "Eat" button of a consumable item (an item whose definition declares a
+        // `consume` block) — wired by App.js to ActionExecutor.eatItem.
+        this._eatHandler = null;
 
         /** @private {HTMLElement|null} */
         this._overlay = null;
@@ -97,6 +100,19 @@ export class InventoryManager {
      */
     setPlaceHandler(handler) {
         this._placeHandler = handler;
+    }
+
+    /**
+     * Sets the callback used by a consumable item's "Eat" button. The handler
+     * receives the item's instance id and eats it (App.js wires it to
+     * ActionExecutor.eatItem, which runs the server-side `eat` action). The button
+     * is rendered from the item definition's `consume` block, so what counts as food
+     * stays data-driven (`data/mods/core-inventory-items/inventoryItems.json`,
+     * `wiki/decisions/consumable-items.md`) — the client never names an item type.
+     * @param {Function|null} handler
+     */
+    setEatHandler(handler) {
+        this._eatHandler = handler;
     }
 
     /**
@@ -680,6 +696,18 @@ export class InventoryManager {
                     </div>`;
             }
 
+            // Eat button — only for items whose definition declares a `consume`
+            // block (the server's rule for food, read here from the item registry
+            // the panel already fetches). Eating spends the item and charges the
+            // body's energy; the refusal cases (not food, already full) are answered
+            // server-side and shown as a toast.
+            const eatButtonHtml = itemDef && itemDef.consume
+                ? `<button class="equip-btn eat"
+                        data-item-id="${item.id}"
+                        data-item-type="${item.type}"
+                        title="Eat this (the item is spent and its energy is charged to you)">🍽️ Eat</button>`
+                : '';
+
             const depthClass = this._getDepthClass(depth);
             const cardClass = depthClass ? `inventory-item-card ${depthClass}` : 'inventory-item-card';
 
@@ -706,6 +734,7 @@ export class InventoryManager {
                     ${wearButtonHtml}
                     ${dropButtonHtml}
                     ${placeButtonHtml}
+                    ${eatButtonHtml}
                 </div>
                 <!-- Expandable stats panel (hidden by default) -->
                 <div class="inventory-item-stats-panel"
@@ -886,6 +915,14 @@ export class InventoryManager {
             });
         });
 
+        // Attach eat button listeners (consumable items only).
+        const eatButtons = this._content.querySelectorAll('.equip-btn.eat');
+        eatButtons.forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                this._onEatClick(e, btn.closest('.inventory-item-card'));
+            });
+        });
+
         // Attach stats toggle button listeners
         const statsButtons = this._content.querySelectorAll('.equip-btn.stats-toggle');
         statsButtons.forEach(btn => {
@@ -967,6 +1004,73 @@ export class InventoryManager {
         // repaint this panel's stale cache and leave the placed item on screen.
         await this._loadEntityItems(this._currentEntityId);
         this._renderIfVisible();
+    }
+
+    /**
+     * Handles click on the Eat button of a consumable item. Runs the server-side
+     * `eat` action through the injected handler (App.js → ActionExecutor.eatItem),
+     * then re-fetches this panel's items so a spent item disappears — the same
+     * reload-then-render pattern as `_onPlaceClick`, for the same reason: the
+     * world-state repaint does not refresh this panel's own cache.
+     *
+     * The world answers an eat in three ways and the panel says each in its own voice:
+     * the round TOOK the plan (Turn mode — "will run when the round resolves", the path in
+     * play by default), the meal happened (real-time, or the resolution of a queued one),
+     * and a refusal ("Already at full Physical.energy", "Knife is not something you can
+     * eat"). Neither the schedule nor the refusal is an error — both are 200 answers and
+     * neither repaints a lie — so both go out as neutral information and the item stays
+     * on screen when nothing was spent. Only a request that never reached the world is
+     * red.
+     * @param {Event} e - The click event.
+     * @param {HTMLElement} card - The item card element.
+     * @private
+     */
+    async _onEatClick(e, card) {
+        e.stopPropagation();
+        e.preventDefault();
+        if (!card || !this._eatHandler) {
+            this._showToast('Eat action is not available.', 'error');
+            return;
+        }
+        const itemId = card.dataset.itemId;
+        if (!itemId) return;
+        const label = this._eatLabel(card.dataset.itemType);
+        let result = null;
+        try {
+            result = await this._eatHandler(itemId);
+        } catch (error) {
+            // _sendActionRequest already reported the transport/route failure; the
+            // re-fetch below leaves the panel on server truth either way.
+            ClientLogger.error('InventoryManager', ' Eat handler threw:', error);
+        }
+        // Three answers, and only one of them is a failure. Red is reserved for the
+        // meal that could not even be asked (transport, route, no active droid).
+        if (result?.queued) {
+            // Turn mode: the round took the plan. Nothing is eaten yet — the bite
+            // lands when the round resolves, and the world repaints the panel then.
+            this._showToast(`Your action to eat ${label} will run when the round resolves.`, 'info');
+        } else if (result?.success) {
+            this._showToast(result.message || `You eat the ${label}.`, 'success');
+        } else if (result?.refused) {
+            // The world answered and said no (full meter, not food, not carried):
+            // nothing broke and nothing was spent, so this is information, not an error.
+            this._showToast(result.message || `You could not eat the ${label}.`, 'info');
+        } else if (result) {
+            this._showToast(result.message || `Eating ${label} did not happen.`, 'error');
+        }
+        await this._loadEntityItems(this._currentEntityId);
+        this._renderIfVisible();
+    }
+
+    /**
+     * The word the Eat messages use for the item — its registry display name when the
+     * panel has one, so the toast reads "eat Apple" and not "eat item-3f9a2c".
+     * @param {string} [itemType] - The item type from the card (registry key).
+     * @returns {string}
+     * @private
+     */
+    _eatLabel(itemType) {
+        return this._itemRegistry?.[itemType]?.name || itemType || 'the item';
     }
 
     /**
@@ -1763,7 +1867,9 @@ export class InventoryManager {
     /**
      * Shows a toast notification.
      * @param {string} message - The message to display.
-     * @param {'success'|'error'} type - The toast type.
+     * @param {'success'|'info'|'error'} type - The toast type. `info` is the neutral
+     * voice: a 200 answer that is neither a success nor a fault (a plan the round
+     * took, a rule of the world that said no). `error` means nothing reached the world.
      * @private
      */
     _showToast(message, type = 'success') {

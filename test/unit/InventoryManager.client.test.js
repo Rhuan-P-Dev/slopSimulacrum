@@ -185,3 +185,138 @@ describe('InventoryManager — equipped-list keying', () => {
         warnSpy.mockRestore();
     });
 });
+
+// ---- The Eat button (consumable items) ----------------------------------------
+// The button is rendered from the item DEFINITION's `consume` block, never from a
+// hard-coded list of edible types — the same data-driven rule the server eats by
+// (src/services/ConsumableRules.js). What is pinned here is the panel's half of the
+// meal: which items get the button, and what the panel does with the world's answer
+// (a refusal is a 200, and the toast has to say why nothing was eaten).
+describe('InventoryManager — the Eat button follows the item definition', () => {
+    /** The registry the panel would have fetched, with one food and one not. */
+    function withRegistry(manager, definitions) {
+        manager._itemRegistry = definitions;
+        return manager;
+    }
+
+    it('renders Eat for an item whose definition declares a consume block', () => {
+        const manager = withRegistry(makeManager(), {
+            apple: { name: 'Apple', consume: { targetStat: 'Physical.energy', energyGain: 15 } },
+        });
+        const html = manager._renderTreeItems('comp-x', [item('apple', 'item-apple')], 0);
+        expect(html).toContain('class="equip-btn eat"');
+        expect(html).toContain('data-item-id="item-apple"');
+    });
+
+    it('does NOT render Eat for an item that declares nothing (coal is fuel, not food)', () => {
+        const manager = withRegistry(makeManager(), { coal: { name: 'Coal' } });
+        const html = manager._renderTreeItems('comp-x', [item('coal', 'item-coal')], 0);
+        expect(html).not.toContain('equip-btn eat');
+    });
+
+    it('does NOT render Eat when the registry does not know the item', () => {
+        // A type from a mod the panel never fetched is not food by default: the button
+        // appears only when a definition says so.
+        const manager = makeManager();
+        const html = manager._renderTreeItems('comp-x', [item('mysteryFruit', 'item-x')], 0);
+        expect(html).not.toContain('equip-btn eat');
+    });
+
+    /** Stubs the panel surface _onEatClick touches, and records what it was told. */
+    function wireClick(manager, { handler, toasts = [] } = {}) {
+        manager._currentEntityId = 'ent-1';
+        manager._eatHandler = handler ?? null;
+        manager._showToast = (message, type) => toasts.push({ message, type });
+        const reloaded = [];
+        manager._loadEntityItems = async (id) => { reloaded.push(id); };
+        manager._renderIfVisible = () => { reloaded.push('render'); };
+        return { toasts, reloaded };
+    }
+
+    it('runs the handler with the item id, toasts the meal, and reloads the panel', async () => {
+        const manager = makeManager();
+        const seen = [];
+        const { toasts, reloaded } = wireClick(manager, {
+            handler: async (itemId) => {
+                seen.push(itemId);
+                return { success: true, message: 'Ate Apple (+15 Physical.energy).' };
+            },
+        });
+        await manager._onEatClick({ stopPropagation() {}, preventDefault() {} }, { dataset: { itemId: 'item-apple' } });
+        expect(seen).toEqual(['item-apple']);
+        expect(toasts).toEqual([{ message: 'Ate Apple (+15 Physical.energy).', type: 'success' }]);
+        expect(reloaded).toEqual(['ent-1', 'render']);
+    });
+
+    it('says the meal is SCHEDULED when the round took it (the Turn-mode default)', async () => {
+        // The path every click is on unless the player switches to real-time:
+        // ActionManager sends `queueForRound: true`, the route answers with an ACK and no
+        // consequence has run. Reading that ack as a failed eat is the message that looked
+        // like a bug ("The world ran the eat action without eating anything") while the
+        // world had merely taken the order — so the panel speaks of a schedule, in the
+        // neutral voice, and names the item from the registry rather than the instance id.
+        const manager = withRegistry(makeManager(), {
+            apple: { name: 'Apple', consume: { targetStat: 'Physical.energy', energyGain: 15 } },
+        });
+        const { toasts, reloaded } = wireClick(manager, {
+            handler: async () => ({ success: false, queued: true, message: null, refused: false }),
+        });
+        await manager._onEatClick(
+            { stopPropagation() {}, preventDefault() {} },
+            { dataset: { itemId: 'item-apple', itemType: 'apple' } }
+        );
+        expect(toasts).toEqual([{ message: 'Your action to eat Apple will run when the round resolves.', type: 'info' }]);
+        expect(reloaded).toEqual(['ent-1', 'render']);
+    });
+
+    it('toasts the refusal as information, not as an error, and still reloads', async () => {
+        // A full body keeps the apple. The world answered 200 with a reason: nothing
+        // broke and nothing was spent, so painting it red tells the player a rule of the
+        // world is a bug on their side. Red is kept for what never reached the world.
+        const manager = makeManager();
+        const { toasts, reloaded } = wireClick(manager, {
+            handler: async () => ({ success: false, queued: false, message: 'Already at full Physical.energy (100/100).', refused: true }),
+        });
+        await manager._onEatClick({ stopPropagation() {}, preventDefault() {} }, { dataset: { itemId: 'item-apple' } });
+        expect(toasts).toEqual([{ message: 'Already at full Physical.energy (100/100).', type: 'info' }]);
+        expect(reloaded).toEqual(['ent-1', 'render']);
+    });
+
+    it('keeps red for a request that never reached the world', async () => {
+        // The one case that IS a failure: the transport or the route answered nothing
+        // usable — no world verdict to explain, so the panel says it did not happen.
+        const manager = makeManager();
+        const { toasts } = wireClick(manager, {
+            handler: async () => ({ success: false, queued: false, message: 'Eating did not happen.', refused: false }),
+        });
+        await manager._onEatClick({ stopPropagation() {}, preventDefault() {} }, { dataset: { itemId: 'item-apple' } });
+        expect(toasts).toEqual([{ message: 'Eating did not happen.', type: 'error' }]);
+    });
+
+    it('says the action is unavailable when nothing is wired', async () => {
+        const manager = makeManager();
+        const { toasts, reloaded } = wireClick(manager);
+        await manager._onEatClick({ stopPropagation() {}, preventDefault() {} }, { dataset: { itemId: 'item-apple' } });
+        expect(toasts[0].type).toBe('error');
+        expect(toasts[0].message).toMatch(/not available/);
+        expect(reloaded).toEqual([]);
+    });
+
+    it('survives a handler that throws, and still repaints from the server', async () => {
+        const manager = makeManager();
+        const { reloaded } = wireClick(manager, {
+            handler: async () => { throw new Error('network down'); },
+        });
+        await manager._onEatClick({ stopPropagation() {}, preventDefault() {} }, { dataset: { itemId: 'item-apple' } });
+        expect(reloaded).toEqual(['ent-1', 'render']);
+    });
+
+    it('ignores a card with no item id', async () => {
+        const manager = makeManager();
+        let calls = 0;
+        const { reloaded } = wireClick(manager, { handler: async () => { calls += 1; return { success: true }; } });
+        await manager._onEatClick({ stopPropagation() {}, preventDefault() {} }, { dataset: {} });
+        expect(calls).toBe(0);
+        expect(reloaded).toEqual([]);
+    });
+});

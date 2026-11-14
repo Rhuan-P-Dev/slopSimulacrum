@@ -1,6 +1,7 @@
 import { AppConfig } from './Config.js';
 import { resolveRange } from '../../shared/RangeResolver.js';
 import { BINDING_ROLES } from '../../shared/ActionVocabulary.js';
+import { readEatOutcome } from '../../shared/ConsumableOutcome.js';
 import ClientLogger from '/utils/ClientLogger.js';
 
 /**
@@ -514,6 +515,55 @@ export class ActionExecutor {
         } catch (error) {
             ClientLogger.error('ActionExecutor', ` Place machine failed: ${error.message}`, { itemId, error: error.message });
             this.errorController.handleError({ code: 'PLACE_MACHINE_FAILED', message: error.message });
+        }
+    }
+
+    /**
+     * Eats one carried consumable. Runs the data-driven `eat` action through the
+     * shared action-request path (`ActionManager._sendActionRequest`, so the turn-mode
+     * queue is honored exactly as it is for every other action): the server spends the
+     * item and charges the amount the item declares onto the body's entity attribute
+     * (`src/controllers/consequences/EatConsequenceHandler.js`,
+     * `wiki/decisions/consumable-items.md`).
+     *
+     * Returns what the world did with the bite (`{ success, queued, message, refused }`,
+     * read through `shared/ConsumableOutcome.js`): the top of an action result only says
+     * the action was VALID, so a refusal ("Already at full Physical.energy") arrives as a
+     * 200 with `success: true` at the top and a failed `eatItem` entry inside — and in
+     * Turn mode the answer is the round's ACK (`queued: true`), because the meal has not
+     * happened yet. The inventory panel turns each state into its own message.
+     * @param {string} itemId - The consumable item instance id to eat.
+     * @returns {Promise<{success: boolean, queued: boolean, message: string|null, refused: boolean}>} What the bite did.
+     */
+    async eatItem(itemId) {
+        const droid = this.worldState.getActiveDroid();
+        if (!droid) {
+            this.errorController.handleError({ code: 'NO_ACTIVE_DROID', message: 'No active droid to eat with.' });
+            return null;
+        }
+        try {
+            const response = await this.actions._sendActionRequest({
+                actionName: 'eat',
+                entityId: droid.id,
+                params: { itemId }
+            }, 'EAT_FAILED');
+            const outcome = readEatOutcome(response?.result);
+            if (outcome.success) {
+                // The meal settled: repaint (energy bar up, item gone). A refusal
+                // repaints nothing — the item was kept and the meter never moved. A
+                // QUEUED bite repaints nothing either: the world changed no state, it
+                // filed a plan, and its own broadcast will arrive at the resolution.
+                await this.refreshCallback();
+            }
+            ClientLogger.info('ActionExecutor', ` Eat ${itemId}: ${
+                outcome.queued ? 'queued for the round'
+                    : (outcome.message ?? 'no reason given')
+            }`, { itemId, ate: outcome.success, queued: outcome.queued, refused: outcome.refused });
+            return outcome;
+        } catch (error) {
+            // _sendActionRequest already reported it through the error controller.
+            ClientLogger.error('ActionExecutor', ` Eat failed: ${error.message}`, { itemId, error: error.message });
+            return { success: false, queued: false, message: error?.message ?? 'Eating did not happen.', refused: false };
         }
     }
 

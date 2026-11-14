@@ -686,6 +686,9 @@ export class ClientApp {
             // carried machine item; the Object Viewer "Retrieve" button reclaims a
             // placed machine (both delegate to the ActionExecutor).
             this.inventory.setPlaceHandler((itemId) => this.executor.placeMachine(itemId));
+            // The inventory "Eat" button (rendered for items whose definition declares
+            // a `consume` block) runs the `eat` action on the same delegate pattern.
+            this.inventory.setEatHandler((itemId) => this.executor.eatItem(itemId));
             this.objectViewer.setRetrieveHandler((machineEntityId) => this.executor.retrieveMachine(machineEntityId));
 
             // Register panels with overlay manager. Panels open from their
