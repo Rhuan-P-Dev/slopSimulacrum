@@ -733,7 +733,7 @@ class AgentBodyDesignPipeline {
             '- "effects": 0 to ' + MAX_BODY_EFFECTS + ' definitions. Each:\n' +
             '  { "id": "<letters and digits only, 1-31 chars - this becomes the effect id the world names>",\n' +
             '    "name": "<what the world SHOWS, e.g. Furnace Heart; at most 80 chars>",\n' +
-            '    "phrase": "<a few words said about the body in third person, e.g. ""is running hot""; optional; at most 80 chars>",\n' +
+            '    "prose": { "phrase": "<a few words said about the body in third person, e.g. is running hot; at most 80 chars>" } - optional; omit the whole "prose" field for no fragment,\n' +
             '    "target": "entity" or "component" - "component" means every part of this body that carries what the operations name; "entity" means the body as a whole,\n' +
             '    "durationRounds": 0 (ALWAYS write 0: an inborn effect lasts as long as the body does),\n' +
             '    "operations": [ one or more operations, listed below ],\n' +

@@ -101,6 +101,7 @@ import { readCardFiles } from '../../controllers/logic/CardSpawnLogic.js';
 import { readCharaCard, readCardFileBytes } from '../../utils/PngCharaReader.js';
 import path from 'node:path';
 import { REGISTRY_KINDS } from '../../../shared/RegistryKinds.js';
+import { toStoredEffectDefinition } from '../effects/EffectDefinitionRules.js';
 
 /**
  * The identifier `entityController.expandBlueprint` itself gives a mount that
@@ -687,11 +688,15 @@ class AgentBodyController {
             const slug = String(packageId).replace(/^body-/, '');
             const effectContent = {};
             for (const entry of normalized.effects) {
-                // The stamp says WHICH body this effect was designed for, and the save puts
-                // it - not the model. The server knows the blueprint it is writing, and a
-                // designed character should not be able to claim another one's effect.
-                // `InbornEffects` applies every definition declaring this body at spawn.
-                effectContent[slug + '_' + entry.id] = { ...entry.definition, appliesTo: normalized.blueprintId };
+                // Serialized by the law's own write side, not by spreading the frozen
+                // definition: the frozen form is the RUNTIME view (top-level `phrase`,
+                // null `maxStacks`), and spreading it wrote entries the read law refuses -
+                // every saved inborn effect booted disabled. The stamp says WHICH body
+                // this effect was designed for, and the save puts it - not the model. The
+                // server knows the blueprint it is writing, and a designed character
+                // should not be able to claim another one's effect. `InbornEffects`
+                // applies every definition declaring this body at spawn.
+                effectContent[slug + '_' + entry.id] = toStoredEffectDefinition(entry.definition, normalized.blueprintId);
             }
             content[REGISTRY_KINDS.EFFECTS] = effectContent;
             for (const key of Object.keys(effectContent)) {

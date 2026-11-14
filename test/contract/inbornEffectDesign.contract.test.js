@@ -19,6 +19,8 @@
 import { describe, it, expect } from 'vitest';
 import { buildWorldState } from '../../src/composition/WorldComposition.js';
 import { RegistryStore } from '../../src/services/RegistryStore.js';
+import { validateDesignEffects } from '../../src/controllers/networking/AgentBodyDesignRules.js';
+import { toStoredEffectDefinition } from '../../src/controllers/effects/EffectDefinitionRules.js';
 import { UniversalTickSystem } from '../../src/utils/UniversalTickSystem.js';
 import { MAX_TICKS_PER_SECOND } from '../../src/utils/Constants.js';
 import DataLoader from '../../src/utils/DataLoader.js';
@@ -41,21 +43,30 @@ const STAT = 'move';
 const EFFECT_KEY = 'courier_slowFrame';
 
 /**
- * An effect definition in the exact shape `saveDesign` writes into the package's `effects`
- * kind: `durationRounds: 0`, because an inborn effect lasts as long as the body does.
+ * What the design stage's LAST call answers, in the shape the stage's schema asks the
+ * model for and the shared law validates (`durationRounds: 0` - an inborn effect lasts
+ * as long as the body does).
  */
-const SLOW_FRAME = {
+const SLOW_FRAME_DESIGN = {
+    id: 'slowFrame',
     name: 'Slow Frame',
     prose: { phrase: 'is moving through something heavy' },
     target: 'component',
     durationRounds: 0,
-    stacking: 'refresh',
-    revert: 'auto',
     operations: [{ op: 'statSet', params: { trait: TRAIT, stat: STAT, value: 3 } }],
-    perRound: [],
-    // The stamp the save puts and the model does not author: which body was born with this.
-    appliesTo: BODY
+    perRound: []
 };
+
+/**
+ * The registry row in the EXACT shape `saveDesign` writes: the design stage's validated
+ * definition run through the same serializer the save runs, with the stamp the save puts
+ * and the model does not author - which body was born with this. A hand-written row here
+ * let this file claim a shape the save never wrote (the mismatch that made every saved
+ * inborn effect boot disabled); the row is now produced by the code under test's own
+ * write path, so the seam this file exists to pin cannot drift again.
+ */
+const [SLOW_FRAME_DESIGNED] = validateDesignEffects([SLOW_FRAME_DESIGN], []);
+const SLOW_FRAME = toStoredEffectDefinition(SLOW_FRAME_DESIGNED.definition, BODY);
 
 /**
  * An effect that declares this body and promises a stat no part of it carries: the apply is

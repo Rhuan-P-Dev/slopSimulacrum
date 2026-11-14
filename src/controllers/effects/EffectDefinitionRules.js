@@ -19,6 +19,12 @@
  * accumulated `errors` array and yields `null`; "nothing extra happens" is a complete
  * world, and one bad key in a third-party package is not a crash vector.
  *
+ * THE WRITE SIDE LIVES HERE TOO. `toStoredEffectDefinition` is the inverse of the read
+ * law - the one place that turns a frozen definition back into the registry-file entry a
+ * package ships. A shape read by one module and written by another drifts, and it drifted
+ * once (`saveDesign` spread the runtime form into a package; every inborn effect designed
+ * after it booted disabled). Reader and writer of one shape belong in one file.
+ *
  * @module src/controllers/effects/EffectDefinitionRules
  */
 
@@ -137,6 +143,56 @@ export function validateEffectDefinitionEntry(id, raw, errors) {
         operations: Object.freeze(operations.map(freezeOperation)),
         perRound: Object.freeze(perRound.map(freezeOperation)),
     });
+}
+
+/**
+ * Serialize one frozen definition into the STORED shape of a registry entry — the
+ * inverse of what `validateEffectDefinitionEntry` reads.
+ *
+ * The frozen form is the RUNTIME view: `phrase` flattened to the top, `maxStacks` always
+ * present (null unless capped). The stored form is not that: the fragment lives in a
+ * `prose` block (the same house style as an action's `prose.verbPhrase`), there is no
+ * `maxStacks` key unless stacking is `capped` (a stored null is a law violation), and
+ * there is no `id` — the registry key IS the id, and a copy written into the entry only
+ * goes stale. Spreading the frozen form into a package wrote all three wrong.
+ *
+ * The round-trip is pinned: `validateEffectDefinitionEntry(id,
+ * toStoredEffectDefinition(d, who), [])` yields a definition equal to `d`
+ * (`test/unit/AgentBodyController.test.js`, `test/contract/inbornEffectDesign.contract.test.js`).
+ *
+ * @param {Object} definition - a frozen definition from `validateEffectDefinitionEntry`
+ * @param {string|null} [appliesTo] - the blueprint this entry is stamped for (the save
+ *   knows which body it is writing; the model does not get to claim one). null omits it.
+ * @returns {Object} the entry as written into a package's `effects.json`
+ */
+export function toStoredEffectDefinition(definition, appliesTo = null) {
+    const stored = { name: definition.name };
+    if (definition.phrase) stored.prose = { phrase: definition.phrase };
+    stored.target = definition.target;
+    stored.durationRounds = definition.durationRounds;
+    stored.stacking = definition.stacking;
+    // Absent, not null - the law refuses `maxStacks` on anything but a capped entry.
+    if (definition.maxStacks !== null && definition.maxStacks !== undefined) {
+        stored.maxStacks = definition.maxStacks;
+    }
+    stored.revert = definition.revert;
+    stored.operations = definition.operations.map(toStoredOperation);
+    stored.perRound = definition.perRound.map(toStoredOperation);
+    if (appliesTo !== null && appliesTo !== undefined) stored.appliesTo = appliesTo;
+    return stored;
+}
+
+/**
+ * One operation as stored: params only when there are any (an op whose spec takes
+ * nothing reads cleaner without an empty object, and the law accepts both).
+ * @param {{op: string, params: Object}} operation
+ * @returns {{op: string, params?: Object}}
+ */
+function toStoredOperation(operation) {
+    const params = operation.params ?? {};
+    return Object.keys(params).length > 0
+        ? { op: operation.op, params: { ...params } }
+        : { op: operation.op };
 }
 
 /**

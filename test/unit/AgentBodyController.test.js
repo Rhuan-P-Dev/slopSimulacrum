@@ -35,6 +35,9 @@ import AgentBodyDesignPipeline, {
 } from '../../src/controllers/networking/AgentBodyDesignPipeline.js';
 import { LLMError } from '../../src/utils/CustomErrors.js';
 import ModPackageWriter from '../../src/services/ModPackageWriter.js';
+import { RegistryStore } from '../../src/services/RegistryStore.js';
+import EffectsController from '../../src/controllers/effects/EffectsController.js';
+import { validateEffectDefinitionEntry } from '../../src/controllers/effects/EffectDefinitionRules.js';
 import { LLM_DEFAULT_TEMPERATURE } from '../../src/utils/Constants.js';
 
 const CARDS_DIR = path.resolve('data/cards');
@@ -396,6 +399,20 @@ describe('AgentBodyController', () => {
             expect(fakeLlm.chatFull.mock.calls[1][0][1].content, 'anatomy sees the concept').toContain(NOVA_CONCEPT.rationale);
             expect(fakeLlm.chatFull.mock.calls[2][0][1].content, 'organs see the anatomy').toContain('parcelStrap');
             expect(fakeLlm.chatFull.mock.calls[3][0][1].content, 'outfit sees the anatomy').toContain('m1CentralBody');
+        });
+
+        it('states the prose fragment in the shape the law reads it — inside "prose"', async () => {
+            // The effects stage validates with the SAME law that reads `effects.json` at
+            // boot (`EffectDefinitionRules`), and that law takes the fragment as
+            // `prose: { phrase }`. A schema line that teaches a top-level `phrase` string
+            // promises a shape the law refuses: every model that follows the prompt to the
+            // letter pays a corrective retry on the LAST stage of the pipeline.
+            queueDesignStages(fakeLlm.chatFull);
+            await controller.designBody(NOVA_STEM);
+            const effectsPrompt = fakeLlm.chatFull.mock.calls[STAGE_ORDER.length - 1][0][0].content;
+            expect(effectsPrompt).toContain('"prose": { "phrase"');
+            const phraseFields = effectsPrompt.match(/"phrase"/g) ?? [];
+            expect(phraseFields, 'the fragment is stated once, inside the prose object').toHaveLength(1);
         });
 
         it('accepts a stage answer wrapped in a markdown code fence', async () => {
@@ -1416,6 +1433,38 @@ describe('AgentBodyController', () => {
                 expect(authored.operations).toEqual([{ op: 'statDelta', params: { trait: 'Physical', stat: 'strength', value: -1 } }]);
                 // The stamp the model does not author: which body this effect was designed for.
                 expect(authored.appliesTo).toBe('novaRunner');
+            });
+
+            it('writes exactly the shape the world reads back — the law and the controller accept the saved entry', async () => {
+                // The seam that used to die here: `saveDesign` spread the law's RUNTIME form
+                // (a top-level `phrase` string, `maxStacks: null`) into the package, and
+                // `EffectsController` reads packages with the law that wants the fragment
+                // as `prose: { phrase }` and no `maxStacks` unless stacking is capped —
+                // every saved inborn effect booted disabled, silently, with only a warning.
+                const harness = makeSaveHarness();
+                await harness.controller.saveDesign({
+                    ...HAPPY_BODY,
+                    effects: [effect({ prose: { phrase: 'is moving through something heavy' } })]
+                });
+
+                const effects = harness.read(`${PACKAGE_DIR}/effects.json`);
+                const authored = effects.novarunner_slowFrame;
+                expect(authored.prose).toEqual({ phrase: 'is moving through something heavy' });
+                expect('phrase' in authored, 'the runtime form is not the stored form').toBe(false);
+                expect('maxStacks' in authored, 'a null maxStacks breaks the law when stacking is not capped').toBe(false);
+                expect('id' in authored, 'the registry key is the id; a stored copy of it would go stale').toBe(false);
+
+                const errors = [];
+                const definition = validateEffectDefinitionEntry('novarunner_slowFrame', authored, errors);
+                expect(errors, errors.join('; ')).toEqual([]);
+                expect(definition?.phrase).toBe('is moving through something heavy');
+
+                // And the definition owner agrees: the body's inborn list names the effect
+                // exactly as it was written — the spawn path would now find it.
+                const reader = new EffectsController({
+                    registries: new RegistryStore({ [REGISTRY_KINDS.EFFECTS]: effects })
+                });
+                expect(reader.effectsDeclaredFor('novaRunner')).toEqual(['novarunner_slowFrame']);
             });
 
             it('writes no effects file for a body that was designed without any', async () => {
