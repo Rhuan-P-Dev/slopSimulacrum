@@ -498,6 +498,7 @@ const OPERATIONS = Object.freeze({
     remove_effect: {
         desc: 'Take a live effect off — remove an effect INSTANCE (one application of a type), not the type itself; '
             + 'the definition stays and can be applied again. By instance id from list_effects, or by effect id and/or entity. '
+            + 'An entityId covers the body AND its parts — everything an apply_effect with a componentId landed on. '
             + 'Reverts what the effect did by its own contribution (a record-only effect, like damage, is not undone).',
         params: ['instanceId', 'effectId', 'entityId'],
         required: [],
@@ -516,12 +517,13 @@ const OPERATIONS = Object.freeze({
             ...(p.instanceId ? { instanceId: p.instanceId } : {}),
             ...(p.effectId ? { effectId: p.effectId } : {}),
             ...(p.entityId ? { targetId: p.entityId } : {}),
-        }),
+        }, p.entityId ? { includeComponentInstances: true } : {}),
         summary: (p) => `remove effects ${p.instanceId || p.effectId || ''} on ${p.entityId || 'the named instance'}`
     },
     list_effects: {
-        desc: 'Read back what is running on one entity right now (instance id, effect, round applied, rounds remaining) '
-            + '— the check that an apply_effect actually landed. The instance id here is what remove_effect takes.',
+        desc: 'Read back what is running on one entity right now — the body AND its parts, each row naming '
+            + 'the target it sits on (instance id, effect, round applied, rounds remaining) — the check that an '
+            + 'apply_effect actually landed, including one applied with a componentId. The instance id here is what remove_effect takes.',
         params: ['entityId'],
         required: ['entityId'],
         types: { entityId: 'string' },
@@ -530,8 +532,8 @@ const OPERATIONS = Object.freeze({
             s._requireNonNullEntity(p.entityId, errs);
             return errs;
         },
-        execute: (p, s) => s.wsc.listActiveEffects(p.entityId),
-        summary: (p) => `list effects on entity ${p.entityId}`
+        execute: (p, s) => s.wsc.listActiveEffects(p.entityId, { includeComponentInstances: true }),
+        summary: (p) => `list effects on entity ${p.entityId} (body and parts)`
     },
     register_effect: {
         desc: 'STEP 1 of an effect: define a NEW effect TYPE for the running world without a restart, so that '

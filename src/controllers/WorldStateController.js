@@ -2561,8 +2561,10 @@ class WorldStateController {
 
     /**
      * Remove live effect instances (by instance id, or by effect id and/or target).
+     * Exact by default; `options.includeComponentInstances` widens a `targetId` naming
+     * an entity to its whole body - see `EffectEngine.remove`.
      * @param {{instanceId?: string, effectId?: string, targetId?: string}} selector
-     * @param {{ revert?: boolean }} [options]
+     * @param {{ revert?: boolean, includeComponentInstances?: boolean }} [options]
      * @returns {number} how many instances were removed
      */
     removeEffects(selector = {}, options = {}) {
@@ -2570,12 +2572,17 @@ class WorldStateController {
     }
 
     /**
-     * The live effect instances on one target, with their remaining rounds.
+     * The live effect instances on one target, with their remaining rounds. Exact by
+     * default (the NPC context shows each instance exactly once - part effects under
+     * the part); `options.includeComponentInstances` widens an entity id to the whole
+     * body, which is what the operator's read-back of an `apply_effect { componentId }`
+     * needs.
      * @param {string} targetId
+     * @param {{includeComponentInstances?: boolean}} [options]
      * @returns {Array<Object>}
      */
-    listActiveEffects(targetId) {
-        return this.effectEngine?.listActive({ id: targetId }) ?? [];
+    listActiveEffects(targetId, options = {}) {
+        return this.effectEngine?.listActive({ id: targetId }, options) ?? [];
     }
 
     /**

@@ -41,8 +41,8 @@ function makeWorld(overrides = {}) {
             : null),
         getEffectDefinition: (id) => (id === 'burning' ? { id: 'burning', target: 'component' } : null),
         listEffectDefinitions: () => [{ id: 'burning' }, { id: 'corroding' }],
-        listActiveEffects: (id) => {
-            calls.push(['listActiveEffects', id]);
+        listActiveEffects: (id, options) => {
+            calls.push(['listActiveEffects', id, options]);
             return [{ instanceId: 'eff-1', effectId: 'burning', remainingRounds: 2 }];
         },
         applyEffect: (effectId, target, options) => {
@@ -130,6 +130,30 @@ describe('list_effects and remove_effect', () => {
         expect(listed.result).toEqual([{ instanceId: 'eff-1', effectId: 'burning', remainingRounds: 2 }]);
     });
 
+    it('reads an entity at BODY scope: what runs on the body and on its parts', () => {
+        // `apply_effect { componentId }` lands an instance on one part; the read-back
+        // that proves it landed names the ENTITY. Without the scope widening the verb
+        // answers "nothing is running" for an effect the same console just applied.
+        const world = makeWorld();
+        const svc = service(world);
+        const intent = svc.validateAction('list_effects', { entityId: 'ent-droid' });
+        svc.executeActions([intent.intent]);
+        const listed = world.calls.find(([name]) => name === 'listActiveEffects');
+        expect(listed[1]).toBe('ent-droid');
+        expect(listed[2]).toEqual({ includeComponentInstances: true });
+    });
+
+    it('removes by entity at BODY scope, taking the parts\' instances off with the body', () => {
+        const world = makeWorld();
+        const svc = service(world);
+        const intent = svc.validateAction('remove_effect', { entityId: 'ent-droid' });
+        expect(intent.ok).toBe(true);
+        svc.executeActions([intent.intent]);
+        const removed = world.calls.find(([name]) => name === 'removeEffects');
+        expect(removed[1]).toEqual({ targetId: 'ent-droid' });
+        expect(removed[2]).toEqual({ includeComponentInstances: true });
+    });
+
     it('refuses an empty remove selector, because it would strip every live effect in the world', () => {
         const world = makeWorld();
         const svc = service(world);
@@ -147,6 +171,8 @@ describe('list_effects and remove_effect', () => {
         svc.executeActions([intent.intent]);
         const removed = world.calls.find(([name]) => name === 'removeEffects');
         expect(removed[1]).toEqual({ instanceId: 'eff-1' });
+        // No entity named, no body scope: an instance removal is exact by definition.
+        expect(removed[2] ?? {}).not.toHaveProperty('includeComponentInstances');
     });
 });
 

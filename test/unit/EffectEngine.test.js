@@ -412,3 +412,47 @@ describe('EffectEngine — records never outlive the thing they describe', () =>
         }]);
     });
 });
+
+describe('EffectEngine — the entity-scope view the operator verbs read', () => {
+    // `apply_effect { componentId }` lands an instance on one PART, and its targetId is
+    // the component. The operator's read-back and removal name the ENTITY - the body and
+    // everything carried under it - so entity scope matches the instance's OWN record of
+    // who wore the target, kept at apply time (`ownerEntityId`). The default stays exact:
+    // the LLM context renders part instances under the part and body instances under the
+    // body, each exactly once, and widening the default would print them twice.
+    it('lists an entity-scope view that includes what runs on the entity\'s parts', () => {
+        const { engine } = buildEngine({ e: statEffect() }, { stats: { c1: { Movement: { move: 20 } } } });
+        engine.setCurrentRound(1);
+        engine.apply('e', { kind: 'component', id: 'c1' });
+        // Exact scope (the context's view): the part shows the instance, the body does not.
+        expect(engine.listActive({ id: 'c1' }).map((i) => i.effectId)).toEqual(['e']);
+        expect(engine.listActive({ id: 'e1' })).toEqual([]);
+        // Entity scope (the operator's view): the body AND everything running on its parts.
+        const wide = engine.listActive({ id: 'e1' }, { includeComponentInstances: true });
+        expect(wide.map((i) => i.effectId)).toEqual(['e']);
+        expect(wide.map((i) => i.targetId)).toEqual(['c1']);
+    });
+
+    it('removes and reverts, by entity scope, the instances running on the entity\'s parts', () => {
+        const { engine, world } = buildEngine({ e: statEffect() }, { stats: { c1: { Movement: { move: 20 } } } });
+        engine.setCurrentRound(1);
+        engine.apply('e', { kind: 'component', id: 'c1' });
+        expect(world.valueOf('c1', 'Movement', 'move')).toBe(15);
+        // Exact removal names the body and touches no part - the old behavior, pinned.
+        expect(engine.remove({ targetId: 'e1' })).toBe(0);
+        expect(world.valueOf('c1', 'Movement', 'move')).toBe(15);
+        // Entity scope takes the part's instance off the body, reverted like any other.
+        expect(engine.remove({ targetId: 'e1' }, { includeComponentInstances: true })).toBe(1);
+        expect(world.valueOf('c1', 'Movement', 'move')).toBe(20);
+    });
+
+    it('keeps an entity-scoped effectId selector narrow to that entity, not worldwide', () => {
+        const { engine } = buildEngine({ e: statEffect() }, { entities: { e1: { components: ['c1'] }, e2: { components: ['c2'] } }, stats: { c1: { Movement: { move: 20 } }, c2: { Movement: { move: 20 } } } });
+        engine.setCurrentRound(1);
+        engine.apply('e', { kind: 'component', id: 'c1' });
+        engine.apply('e', { kind: 'component', id: 'c2' });
+        expect(engine.remove({ targetId: 'e1', effectId: 'e' }, { includeComponentInstances: true })).toBe(1);
+        // The other body's part keeps its instance: entity scope is scoped to the entity.
+        expect(engine.listActive({ id: 'c2' })).toHaveLength(1);
+    });
+});

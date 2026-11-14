@@ -271,6 +271,45 @@ describe('define the type in the world, then apply it to an entity', () => {
     });
 });
 
+describe('the operator reads a part back through the body it hangs on', () => {
+    it('lists and removes a component-targeted application by the entity, through the real facade', () => {
+        // `apply_effect { componentId }` lands an instance whose target is the PART.
+        // The read-back and the removal name the ENTITY - through the composed facade
+        // and the real engine, this is the seam where "nothing is running" used to be
+        // the honest answer about an effect the same console had just applied.
+        const { world, entityId } = buildLiveWorld();
+        const service = new WorldOperatorService({
+            worldStateController: world,
+            registryStore: world.registryStore,
+        });
+        const defined = service.validateAction('register_effect', {
+            effectId: 'heavyLead',
+            definition: { target: 'component', durationRounds: 0, operations: [{ op: 'statDelta', params: { trait: 'Movement', stat: 'move', value: -5 } }] },
+        });
+        expect(defined.ok, JSON.stringify(defined.errors)).toBe(true);
+        expect(service.executeActions([defined.intent]).results[0].status).toBe('ok');
+
+        const componentId = moveBearingComponent(world, entityId);
+        const before = world.getComponentStats(componentId).Movement.move;
+        const applied = service.validateAction('apply_effect', { effectId: 'heavyLead', entityId, componentId });
+        expect(applied.ok, JSON.stringify(applied.errors)).toBe(true);
+        expect(service.executeActions([applied.intent]).results[0].status).toBe('ok');
+        expect(world.getComponentStats(componentId).Movement.move).toBe(before - 5);
+
+        const listed = service.executeActions([service.validateAction('list_effects', { entityId }).intent]).results[0];
+        expect(listed.status).toBe('ok');
+        const onThePart = listed.result.filter((instance) => instance.targetId === componentId);
+        expect(onThePart.map((instance) => instance.effectId)).toEqual(['heavyLead']);
+
+        const removed = service.executeActions([service.validateAction('remove_effect', { entityId }).intent]).results[0];
+        expect(removed.status).toBe('ok');
+        expect(removed.result).toBe(1);
+        expect(world.getComponentStats(componentId).Movement.move).toBe(before);
+        // The body is clean by the same verb: entity scope is the entity's whole body.
+        expect(world.listActiveEffects(entityId, { includeComponentInstances: true })).toEqual([]);
+    });
+});
+
 describe('the effects registry kind itself', () => {
     it('is present in the live definition store the world was built from', () => {
         const { world } = buildLiveWorld();

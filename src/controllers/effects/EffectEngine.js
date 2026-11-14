@@ -191,6 +191,12 @@ class EffectEngine {
             effectId: definition.id,
             targetId: target.id,
             targetKind: target.kind,
+            // WHO WEARS THE TARGET, fixed at apply time: a component never changes owner,
+            // and the operator's entity-level read-back and removal must see the instance
+            // an `apply_effect { componentId }` landed on a part (the read shape stays
+            // exact by default - the LLM context renders each instance exactly once, under
+            // the part or under the body; widening is the verbs' explicit opt-in).
+            ownerEntityId: ctx.entityId,
             appliedRound: this._currentRound,
             // A duration of 0, or an application with no round active, means "until
             // something removes it" - the same reading the tracker always had.
@@ -263,14 +269,23 @@ class EffectEngine {
 
     /**
      * Remove live instances, optionally reverting them.
+     *
+     * Scope of a `targetId` selector is exact by default - it names the target the
+     * instance was applied to. `includeComponentInstances` widens an ENTITY id to the
+     * whole body: the instances on the entity plus everything running on the parts it
+     * carries (matched on the `ownerEntityId` recorded at apply). Combined with an
+     * `effectId` it stays scoped to that one entity - never a worldwide sweep.
+     *
      * @param {{instanceId?: string, effectId?: string, targetId?: string}} selector
-     * @param {{revert?: boolean}} [options]
+     * @param {{revert?: boolean, includeComponentInstances?: boolean}} [options]
      * @returns {number} how many instances were removed
      */
-    remove(selector = {}, { revert = true } = {}) {
+    remove(selector = {}, { revert = true, includeComponentInstances = false } = {}) {
         const matches = [...this._instances.values()].filter((instance) => {
             if (typeof selector.instanceId === 'string') return instance.instanceId === selector.instanceId;
-            if (typeof selector.targetId === 'string' && instance.targetId !== selector.targetId) return false;
+            if (typeof selector.targetId === 'string'
+                && instance.targetId !== selector.targetId
+                && !(includeComponentInstances && instance.ownerEntityId === selector.targetId)) return false;
             if (typeof selector.effectId === 'string' && instance.effectId !== selector.effectId) return false;
             return true;
         });
@@ -289,12 +304,19 @@ class EffectEngine {
     /**
      * The live instances on one target — what the operator lists, and what the panel
      * shows. Copies only; the caller cannot edit engine state.
+     *
+     * Exact by default (the instance's own target). `includeComponentInstances` widens
+     * an ENTITY id to the whole body — what runs on the entity and on its parts; each
+     * row's `targetId`/`targetKind` says where it sits.
+     *
      * @param {{kind?: string, id: string}} target
+     * @param {{includeComponentInstances?: boolean}} [options]
      * @returns {Array<{instanceId: string, effectId: string, targetId: string, appliedRound: number|null, expiresRound: number|null, remainingRounds: number|null}>}
      */
-    listActive(target) {
+    listActive(target, { includeComponentInstances = false } = {}) {
         return [...this._instances.values()]
-            .filter((instance) => !target || instance.targetId === target.id)
+            .filter((instance) => !target || instance.targetId === target.id
+                || (includeComponentInstances && instance.ownerEntityId === target.id))
             .map((instance) => ({
                 instanceId: instance.instanceId,
                 effectId: instance.effectId,
