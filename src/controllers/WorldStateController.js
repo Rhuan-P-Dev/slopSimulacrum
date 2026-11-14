@@ -890,7 +890,11 @@ class WorldStateController {
      *
      * @param {Object} options
      * @param {string} options.logicalId - the key the `rooms` registry uses for this room
-     * @param {Object} options.definition - the room definition, the shape the registry uses
+     * @param {Object} options.definition - the room definition, the shape the registry uses,
+     *   EXCEPT that its `connections` are validated and NOT installed here: the live path opens
+     *   its door through `connectFrom` and nothing else. The definition paths own a declared
+     *   `connections` list — the constructor when the world is built and `reconcile` at the swap
+     *   both run the two-pass door install (`wiki/decisions/world-structure-authoring.md`).
      * @param {Object|null} [options.connectFrom] - `{ roomId, door, targetDoor?, position? }`:
      *   the existing room (`roomId` accepts a uid or a logical key) and the door to open in
      *   it. Absent leaves the room unreachable except by an explicit move.

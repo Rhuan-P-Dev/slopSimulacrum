@@ -123,6 +123,25 @@ actually wants the room to stay.
 to a prop in a room, so boot and the live lever cannot drift into two kinds of prop
 (`CHG-2`).
 
+**6. A live room's door comes from `connectFrom`, never from `definition.connections`.** The two
+paths are asymmetric on purpose, and both are now said out loud (`WorldStateController.createRoom`
+JSDoc, the `create_room` operation description, and the system prompt) rather than left for the
+model to discover: a `rooms` *package* declares its doors in `connections` and the map opens them
+where the door list is installed -- the constructor at boot and `reconcile` at the swap, both the
+same two-pass install. The live `create_room` opens the one door named in `connectFrom` and
+installs nothing from `connections`, whose *shape* is still validated because the definition object
+it carries is the one a package would carry. WHY not honor it: a door needs a target uid on both
+sides, and the live path mints the new room's uid after validation, so honoring a declared list
+would mean a second door-installer with its own resolution order -- a second source of truth for
+one fact (`CHG-2`), for a case the required `connectFrom` already covers. What a room-less prop
+means, by contrast, is one rule in one place: `worldObjects` `room` is optional and names
+`start_room` when absent (`_spawnStaticProps`), which is why it is pinned rather than assumed.
+
+There is no "a room cannot connect to itself" check in `_checkRoomCreation`: it could not fire (a
+key already installed is refused by the rule above it, and a new key has no uid until `createRoom`
+runs), and the case that is reachable -- joining one installed room to itself -- is refused by
+`RoomsController.connectRooms`, which owns that rule and is pinned there.
+
 ## Consequences
 
 - A `system-*` package that authors `rooms` changes the running map the moment it is applied,
@@ -139,13 +158,21 @@ to a prop in a room, so boot and the live lever cannot drift into two kinds of p
   spawns). Someone who wants a prop now uses `spawn_world_object`.
 - A malformed room can no longer reach a running world through the pipeline at all: it is
   quarantined at plan/apply, and refused at proposal with the same text.
-- `PROMPT_VERSION` for `system-authoring` went to `2.1.0`: the model is told the map is
-  authorable, what "additive" costs, and that live map changes do not survive a restart.
+- `PROMPT_VERSION` for `system-authoring` went to `2.1.0`, then `2.1.1`: the model is told the
+  map is authorable, what "additive" costs, that live map changes do not survive a restart, and
+  (in `2.1.1`) that a live `create_room` opens only the door in `connectFrom` -- a review found
+  the model could otherwise declare `definition.connections` and watch the shape pass while no
+  door appeared.
 
 ## Rejected alternatives
 
 - **Author and wait for a restart.** The smallest diff, and a feature that looks broken from
   the operator's chair: Write, Apply, and no room.
+- **Honor `definition.connections` in the live `create_room`.** It would make the two paths
+  identical, at the cost of a second door-installer (own resolution order, own conflict rules,
+  own uid timing) for doors the required `connectFrom` already opens. The contract was narrowed
+  and documented instead (decision 6); if a real ask ever wants several doors from one live call,
+  that is the moment to build the shared installer, not before.
 - **Rebuild `RoomsController` on swap.** New uids for every room, and every entity `location`
   orphaned. `recreateWorld` rejects the same idea in writing ("WHY the map survives").
 - **Rebuild the map at `POST /world/create`.** A new world on a running process would still be

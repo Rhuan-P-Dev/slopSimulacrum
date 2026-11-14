@@ -170,6 +170,10 @@ describe('WorldAuthoringController.handleChat — the loop', () => {
         // Reads for definitions (list/read/find), the authoring lever (propose_mod), and the
         // live levers (inspect the running world, then propose a plan to Execute).
         expect(seam.calls[0].options.system).toContain(`${PROMPT_KIND} v${PROMPT_VERSION}`);
+        // The literal, deliberately (`RP-2`): a prompt change is a version bump, so an
+        // unannounced bump should fail here rather than pass silently. Bump the source constant
+        // and this line together, and say so in the decision note that owns the prompt.
+        expect(seam.calls[0].options.system).toContain('system-authoring v2.1.1');
         expect(seam.calls[0].options.tools.map((t) => t.function.name)).toEqual([
             'list_registries', 'read_registry', 'find_definitions', 'propose_mod',
             'list_entities', 'inspect_entity', 'list_rooms', 'propose_action'

@@ -126,4 +126,26 @@ describe('the live map lever on a running world', () => {
         expect(run(service, 'spawn_world_object', { blueprint: 'unobtainium', roomId: 'start_room' }).error)
             .toContain('unobtainium');
     });
+
+    it('refuses a door name the source room already has, against the real map', () => {
+        const { wsc, service } = buildOperatedWorld();
+        const startUid = wsc.getRoomUidByLogicalId('start_room');
+        // `right_door` is an official door of `start_room`. A proposal that reuses its name is
+        // asking to re-point an existing door, which is the one thing the additive map never
+        // does — refused with the rule, against the real map rather than a fake facade.
+        const doorWas = wsc.getRooms()[startUid].connections.right_door.target;
+        const taken = run(service, 'create_room', {
+            logicalId: `${ANNEX}_other`,
+            definition: annexDefinition(),
+            connectFrom: { roomId: 'start_room', door: 'right_door' }
+        });
+
+        expect(taken.status).toBe('error');
+        expect(taken.error).toContain('already has a door "right_door"');
+        expect(taken.error).toContain('never re-pointed');
+        // Refused means untouched: no room installed, and the official door still points where
+        // it always did.
+        expect(wsc.getRoomUidByLogicalId(`${ANNEX}_other`)).toBeFalsy();
+        expect(wsc.getRooms()[startUid].connections.right_door.target).toBe(doorWas);
+    });
 });

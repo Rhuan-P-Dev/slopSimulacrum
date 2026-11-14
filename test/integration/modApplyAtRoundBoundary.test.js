@@ -291,6 +291,55 @@ describe('the map grows with the definition', () => {
 });
 
 /**
+ * Props are population (`wiki/decisions/world-structure-authoring.md`).
+ *
+ * The half of the goal the room tests do not cover: a `worldObjects` entry authored into a
+ * package has to arrive in a world created AFTER the apply, without a process restart. That is
+ * only credible end-to-end — the apply has to land in the same store the world-create pass
+ * reads, and the pass has to build a real prop. It also pins the one shape the shipped prop file
+ * relies on and no rule test named: a `room` field that is ABSENT means `start_room`.
+ */
+describe('a prop authored into a package arrives when a world is created', () => {
+    it('is not there when the apply lands, and is there after a world create', () => {
+        const { wsc, modService } = buildWorld();
+        const annexUid = wsc.getRoomUidByLogicalId(ANNEX);
+        const startUid = wsc.getRoomUidByLogicalId('start_room');
+        const named = () => Object.values(wsc.getAll().entities).filter((e) => e.name === 'Integration Bench');
+        const propMod = 'itest-props';
+
+        expect(named(), 'no such prop before the package exists').toHaveLength(0);
+
+        writePackage(propMod, {
+            [REGISTRY_KINDS.WORLD_OBJECTS]: {
+                itest_bench: { name: 'Integration Bench', blueprint: 'tree', room: ANNEX, position: { x: 10, y: -5 } },
+                // No `room` at all: the shape the official worldObjects.json uses, read as
+                // `start_room` by the spawn pass.
+                itest_loose_bench: { name: 'Integration Bench', blueprint: 'tree' }
+            }
+        });
+        const answer = modService.requestApply();
+        expect(answer.applied).toBe(true);
+
+        // Applied is not arrived. Props are population: a running world takes them at the next
+        // world create, exactly like an NPC. Nothing in the apply puts a prop on the map.
+        expect(named(), 'an apply alone does not spawn population').toHaveLength(0);
+
+        // The real world-create path, with an empty card selection (MODS.md: "props, nobody in
+        // the room") so this asserts the prop pass and nothing else.
+        wsc.recreateWorld({ cardIds: [] });
+
+        const props = named();
+        expect(props).toHaveLength(2);
+        expect(props.every((p) => p.isStatic), 'a prop is a static entity, the same kind boot spawns').toBe(true);
+        const placed = props.find((p) => p.location === annexUid);
+        const defaulted = props.find((p) => p.location === startUid);
+        expect(placed, 'the prop with a room stands in that room').toBeTruthy();
+        expect(placed.spatial).toEqual({ x: 10, y: -5 });
+        expect(defaulted, 'the prop with no room stands in start_room').toBeTruthy();
+    });
+});
+
+/**
  * The HTTP half of the gate.
  *
  * `POST /mods/apply` calls `ModService.requestApply()`, which asks an injected

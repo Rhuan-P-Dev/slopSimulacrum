@@ -13,6 +13,15 @@
  * exists: an installed room's uid is what every entity `location` holds
  * (`wiki/decisions/world-structure-authoring.md`).
  *
+ * ONE ASYMMETRY, ON PURPOSE. A `rooms` *package* declares its doors in `definition.connections`
+ * and the map opens them when the world is built; a live `create_room` opens its door through
+ * `connectFrom` **only**, and installs nothing from `definition.connections` (the shape of that
+ * field is still checked, because the same definition object is what a package would carry).
+ * A door needs a target uid on both sides and the live path mints the new room's uid *after*
+ * validation, so honoring a declared list there would mean a second door-installer with its own
+ * resolution rules — a second source of truth for one fact (`CHG-2`). The operator and the model
+ * are told: leave `connections` empty, name the one door in `connectFrom`, or author the package.
+ *
  * WHY A SEPARATE MODULE. `WorldAuthoringController` is the LLM chat + the *definition*
  * authoring flow (`propose_mod` -> mod package -> `POST /mods/apply` at the round boundary).
  * This module is the *live-state* half: it never talks to the LLM (`B-2`), never touches
@@ -122,7 +131,7 @@ const OPERATIONS = Object.freeze({
         summary: (p) => `move entity ${p.entityId} to room "${p.targetRoomId}"`
     },
     create_room: {
-        desc: 'Add a NEW room to the running map and open a door to an existing one (both ways, so nothing is stranded). definition is one room exactly as the "rooms" registry shapes it (name, x, y, width, height, atmosphere, surface, acoustic, lightSource, ceiling, condition, power). Memory only: to keep the room across a restart, author the same definition into a "rooms" package. An existing room is never moved, renamed or resized.',
+        desc: 'Add a NEW room to the running map and open a door to an existing one (both ways, so nothing is stranded). definition is one room exactly as the "rooms" registry shapes it (name, x, y, width, height, atmosphere, surface, acoustic, lightSource, ceiling, condition, power) EXCEPT its connections: this lever opens the ONE door named in connectFrom and installs nothing from definition.connections — leave that field empty here (a rooms package is what opens a declared door, when the world is built). Memory only: to keep the room across a restart, author the same definition into a "rooms" package. An existing room is never moved, renamed or resized.',
         params: ['logicalId', 'definition', 'connectFrom'],
         required: ['logicalId', 'definition', 'connectFrom'],
         types: { logicalId: 'string', definition: 'object', connectFrom: 'object' },
@@ -741,6 +750,11 @@ export class WorldOperatorService {
      * that would refuse to load tomorrow is refused now, in the conversation), the key is
      * free, and the door asked for can actually be opened: the source room exists and does
      * not already have a door of that name (an existing door is never re-pointed).
+     *
+     * There is deliberately no "cannot connect to itself" check here. It could not fire: a key
+     * already installed is refused by the rule above, and a new key has no uid until `createRoom`
+     * runs, after validation. The case that IS reachable — joining one installed room to itself —
+     * is refused by `RoomsController.connectRooms`, which owns that rule and is pinned there.
      * @private
      * @param {{ logicalId: string, definition: Object, connectFrom: Object }} p
      * @returns {Array<string>}
@@ -760,8 +774,6 @@ export class WorldOperatorService {
         const sourceRoomId = this._resolveRoomId(connectFrom.roomId);
         if (!sourceRoomId) {
             errs.push(`"connectFrom.roomId": no room "${connectFrom.roomId}". Call list_rooms.`);
-        } else if (sourceRoomId === this.wsc.getRoomUidByLogicalId?.(p.logicalId)) {
-            errs.push('A room cannot connect to itself.');
         }
         if (typeof connectFrom.door !== 'string' || connectFrom.door.trim() === '') {
             errs.push('"connectFrom.door" is the door name to open in that room, e.g. "north_door".');

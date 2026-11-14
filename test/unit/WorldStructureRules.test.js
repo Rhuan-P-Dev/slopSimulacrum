@@ -96,6 +96,18 @@ describe('worldObjectDefinitionErrors', () => {
             .toEqual([]);
     });
 
+    it('accepts a prop that names no room — the shape boot reads as "the start room"', () => {
+        // `room` is OPTIONAL, and absent is not a violation: `_spawnStaticProps` reads a missing
+        // room as `start_room` (the shipped prop file relies on it). Pinned here so the default
+        // is a rule, not an accident; the behavior half is pinned end-to-end in
+        // test/integration/modApplyAtRoundBoundary.test.js.
+        expect(worldObjectDefinitionErrors('bench', { blueprint: 'tree' }, { blueprints, rooms }))
+            .toEqual([]);
+        // Present-but-empty is a different thing from absent, and is refused.
+        expect(worldObjectDefinitionErrors('bench', { blueprint: 'tree', room: '  ' }, { blueprints, rooms })
+            .join(' ')).toContain('room must be a non-empty string');
+    });
+
     it('refuses a prop pointing at a blueprint or a room that is not there', () => {
         const errors = worldObjectDefinitionErrors('bench', { blueprint: 'unobtainium', room: 'nowhere' }, { blueprints, rooms });
         expect(errors.join(' ')).toContain("targets unknown blueprint 'unobtainium'");

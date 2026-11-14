@@ -69,7 +69,7 @@ import LLMController from './LLMController.js';
 /** The RP-1 prompt kind. */
 export const PROMPT_KIND = 'system-authoring';
 /** The RP-2 version of that prompt. Bump on any change to `_buildSystemPrompt`. */
-export const PROMPT_VERSION = '2.1.0';
+export const PROMPT_VERSION = '2.1.1';
 
 /**
  * Per-call token cap. 10x the global default, the same reasoning as
@@ -1001,7 +1001,7 @@ export class WorldAuthoringController {
             '',
             `AUTHOR definitions (persist; applied at the round boundary). Read the live definition with list_registries / read_registry / find_definitions, then propose_mod. You never write code and never edit the shipped core-* packages. Kinds refused: ${NON_AUTHORABLE_KINDS.join(', ')} — the shape the world is wrapped in, and the rules that install listeners; neither is content and both stay a hand edit. Authorable kinds: ${AUTHORABLE_KINDS.join(', ')}. This changes what the world is built from, not the running world.`,
             `AUTHOR THE MAP. "rooms" and "worldObjects" are authorable. A room is additive: applied, a room that does not exist yet joins the running map, and a room that exists is NEVER moved, renamed, resized or re-linked by an apply (its id is where the actors stand) — so author new rooms, do not rewrite existing ones; connect a new room with a connection to a room you have read, or it is unreachable. A world object is { name, blueprint, room, position {x,y} }: the blueprint must be one you read, the room is a room key of the rooms registry, and props appear when the world is created (they are population, so a running world takes them at the next world create; place one now with the live lever instead).`,
-            `ACT on the running world (immediate). See the live state with list_entities / inspect_entity / list_rooms (rooms answer with BOTH the live id and the registry key, plus their door names), then propose_action to put an action on the table. The operator runs the plan with Execute; each action is re-validated and executed in order against the current world. A proposal changes nothing by itself. The live menu includes the map: create_room adds a room and opens a door to an existing one (mandatory, so nothing is stranded), spawn_world_object places a prop now.`,
+            `ACT on the running world (immediate). See the live state with list_entities / inspect_entity / list_rooms (rooms answer with BOTH the live id and the registry key, plus their door names), then propose_action to put an action on the table. The operator runs the plan with Execute; each action is re-validated and executed in order against the current world. A proposal changes nothing by itself. The live menu includes the map: create_room adds a room and opens a door to an existing one (mandatory, so nothing is stranded) — that ONE door is the whole connection, leave definition.connections empty, because a live create_room installs no door from it (a rooms package is what opens a declared door); spawn_world_object places a prop now.`,
             '',
             'HOW YOU WORK.',
             `You have ${MAX_TOOL_ITERATIONS} provider calls this turn, and every tool answer says how many are left.`,
