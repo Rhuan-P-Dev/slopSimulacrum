@@ -120,6 +120,24 @@ class EffectsController {
     }
 
     /**
+     * The effects a body is BORN with: every live definition declaring this blueprint.
+     *
+     * Read from the live, validated set rather than the raw registry, so an entry a mod
+     * shipped malformed is never applied. Declaration order is the file's order, which is
+     * the order the effects land on the body - an author can therefore state which of two
+     * effects on the same stat wins.
+     *
+     * @param {string} blueprintKey - the blueprint the entity was built from
+     * @returns {string[]} the effect ids, in declaration order (empty when none declare it)
+     */
+    effectsDeclaredFor(blueprintKey) {
+        if (typeof blueprintKey !== 'string' || blueprintKey === '') return [];
+        const definitions = this._current();
+        return Object.keys(definitions)
+            .filter((id) => definitions[id].appliesTo === blueprintKey);
+    }
+
+    /**
      * One line per live effect for the operator console, the log summary and the
      * LLM context. Built from the same validated set `getDefinition` returns, so a
      * listed effect is always applicable (`CR T-1`).

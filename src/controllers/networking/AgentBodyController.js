@@ -89,6 +89,7 @@ import {
     validateComponentRecipe,
     validateGarments,
     validateOutfit,
+    validateDesignEffects,
     normalizeDesign,
     MAX_BODY_NODES,
     MAX_IC_RECIPES
@@ -525,8 +526,10 @@ class AgentBodyController {
         // Flatten for persistence (the distinct-droid-type guard already ran in
         // _validateDesign).
         const { entries } = this._flattenTree(normalized);
-        const { content, overlapsOfficial } = this._packageContent(normalized, entries);
+        // The package id first: an inborn effect's id is namespaced by the package it ships
+        // in, so the content cannot be built without it.
         const packageId = this._packageIdFor(normalized.blueprintId);
+        const { content, overlapsOfficial } = this._packageContent(normalized, entries, packageId);
 
         const report = this.packageWriter.writePackage({
             id: packageId,
@@ -633,7 +636,7 @@ class AgentBodyController {
      * @param {Object<string, Array>} entries - the flattened blueprint entries.
      * @returns {{ content: Object.<string, Object>, overlapsOfficial: Array<{ kind: string, key: string }> }}
      */
-    _packageContent(normalized, entries) {
+    _packageContent(normalized, entries, packageId) {
         const officialBlueprints = DataLoader.loadRegistry(REGISTRY_KINDS.BLUEPRINTS);
         const content = { [REGISTRY_KINDS.BLUEPRINTS]: entries };
         const overlapsOfficial = Object.keys(entries)
@@ -672,6 +675,29 @@ class AgentBodyController {
             content[REGISTRY_KINDS.OUTFITS] = outfit;
             if (normalized.blueprintId in DataLoader.loadRegistry(REGISTRY_KINDS.OUTFITS)) {
                 overlapsOfficial.push({ kind: REGISTRY_KINDS.OUTFITS, key: normalized.blueprintId });
+            }
+        }
+
+        // The body's INBORN effects: entries of this same package's `effects` kind, keyed by
+        // an id namespaced with the package slug. Namespaced because the effect registry is
+        // GLOBAL - two characters both authored `hotCore` would be one effect wearing two
+        // bodies, and the second save would silently rewrite the first. The blueprint names
+        // the ids it was born with; spawn applies them.
+        if (Array.isArray(normalized.effects) && normalized.effects.length > 0) {
+            const slug = String(packageId).replace(/^body-/, '');
+            const effectContent = {};
+            for (const entry of normalized.effects) {
+                // The stamp says WHICH body this effect was designed for, and the save puts
+                // it - not the model. The server knows the blueprint it is writing, and a
+                // designed character should not be able to claim another one's effect.
+                // `InbornEffects` applies every definition declaring this body at spawn.
+                effectContent[slug + '_' + entry.id] = { ...entry.definition, appliesTo: normalized.blueprintId };
+            }
+            content[REGISTRY_KINDS.EFFECTS] = effectContent;
+            for (const key of Object.keys(effectContent)) {
+                if (key in DataLoader.loadRegistry(REGISTRY_KINDS.EFFECTS)) {
+                    overlapsOfficial.push({ kind: REGISTRY_KINDS.EFFECTS, key });
+                }
             }
         }
 
@@ -981,6 +1007,10 @@ class AgentBodyController {
             availableItems: this.items
         }, errors);
 
+        // What the body does INBORN. The same function the effects stage ran, so the stage's
+        // claim and this fact are one law (`CR T-1`); the reserved-operation gate lives in it.
+        const effects = validateDesignEffects(raw.effects, errors);
+
         // Every tree node must be a known component or a recipe the design
         // invents (the anatomy stage's own check, run again over the whole).
         const unknownRefs = [...new Set(structureRefs)].filter((name) => !this.components[name] && !proposedNames.has(name));
@@ -1000,7 +1030,8 @@ class AgentBodyController {
             garments,
             internalComponents: organs,
             outfit,
-            outfitDeclared: Array.isArray(raw.outfit)
+            outfitDeclared: Array.isArray(raw.outfit),
+            effects
         });
 
         // The distinct-droid-type guard: the blueprint id is the droid-type

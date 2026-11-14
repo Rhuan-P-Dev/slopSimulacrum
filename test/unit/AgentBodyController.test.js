@@ -286,6 +286,8 @@ describe('AgentBodyController', () => {
         const NO_ORGANS = { internalComponents: [] };
         /** The outfit stage's silent answer: the design said nothing about clothing. */
         const NO_OUTFIT = {};
+        /** The ordinary answer of the effects stage: this body is born with nothing. */
+        const NO_EFFECTS = { effects: [] };
 
         /**
          * Queue one answer per pipeline stage (in STAGE_ORDER) on the LLM seam
@@ -293,12 +295,13 @@ describe('AgentBodyController', () => {
          * a raw content string (fence and garbage cases). `mockReset` first,
          * so a short queue never leaks answers into the next test.
          * @param {import('vitest').Mock} chatFull
-         * @param {{ concept?: object|string, anatomy?: object|string, organs?: object|string, outfit?: object|string }} stages
+         * @param {{ concept?: object|string, anatomy?: object|string, organs?: object|string, outfit?: object|string, effects?: object|string }} stages
          */
         function queueDesignStages(chatFull, stages = {}) {
-            const { concept = NOVA_CONCEPT, anatomy = NOVA_ANATOMY, organs = NO_ORGANS, outfit = NO_OUTFIT } = stages;
+            const { concept = NOVA_CONCEPT, anatomy = NOVA_ANATOMY, organs = NO_ORGANS, outfit = NO_OUTFIT,
+                effects = NO_EFFECTS } = stages;
             chatFull.mockReset();
-            for (const stage of [concept, anatomy, organs, outfit]) {
+            for (const stage of [concept, anatomy, organs, outfit, effects]) {
                 chatFull.mockResolvedValueOnce({
                     content: typeof stage === 'string' ? stage : JSON.stringify(stage),
                     finishReason: 'stop'
@@ -312,12 +315,13 @@ describe('AgentBodyController', () => {
          * on every attempt, so the pipeline gives it up (DesignStageError)
          * without ever reaching the later stages.
          * @param {import('vitest').Mock} chatFull
-         * @param {'concept'|'anatomy'|'organs'|'outfit'} stage - the stage that fails.
+         * @param {'concept'|'anatomy'|'organs'|'outfit'|'effects'} stage - the stage that fails.
          * @param {object|string} bad - that stage's failing answer (repeated per attempt).
          */
         function queueStageFailure(chatFull, stage, bad) {
             chatFull.mockReset();
-            const answers = { concept: NOVA_CONCEPT, anatomy: NOVA_ANATOMY, organs: NO_ORGANS, outfit: NO_OUTFIT };
+            const answers = { concept: NOVA_CONCEPT, anatomy: NOVA_ANATOMY, organs: NO_ORGANS, outfit: NO_OUTFIT,
+                effects: NO_EFFECTS };
             for (let i = 0; i < STAGE_ORDER.indexOf(stage); i++) {
                 chatFull.mockResolvedValueOnce({ content: JSON.stringify(answers[STAGE_ORDER[i]]), finishReason: 'stop' });
             }
@@ -357,8 +361,10 @@ describe('AgentBodyController', () => {
             // stage, in order, each naming its kind, version, model, finish
             // reason, latency, attempts and the exact messages it sent.
             expect(result.meta.kind).toBe('agent-body-design-pipeline');
-            expect(result.meta.stages).toHaveLength(4);
-            expect(result.meta.stages.map((s) => s.step)).toEqual(['concept', 'anatomy', 'organs', 'outfit']);
+            expect(result.meta.stages).toHaveLength(5);
+            // Effects LAST: an inborn effect is stated against the finished, dressed body,
+            // so the stage that names it cannot run before the body exists.
+            expect(result.meta.stages.map((s) => s.step)).toEqual(['concept', 'anatomy', 'organs', 'outfit', 'effects']);
             for (const [i, stage] of result.meta.stages.entries()) {
                 expect(stage.kind).toBe(STAGE_PROMPT_KIND[STAGE_ORDER[i]]);
                 expect(stage.version).toBe(STAGE_PROMPT_VERSION[STAGE_ORDER[i]]);
@@ -371,8 +377,8 @@ describe('AgentBodyController', () => {
                 expect(stage.promptMessages[1].role).toBe('user');
             }
             // Four seam calls, one per stage, each within its own token budget.
-            const personas = { concept: 'CHARACTER CONCEPTOR', anatomy: 'BODY DESIGNER', organs: 'ANATOMIST', outfit: 'DRESSER' };
-            expect(fakeLlm.chatFull).toHaveBeenCalledTimes(4);
+            const personas = { concept: 'CHARACTER CONCEPTOR', anatomy: 'BODY DESIGNER', organs: 'ANATOMIST', outfit: 'DRESSER', effects: 'ESSENCE' };
+            expect(fakeLlm.chatFull).toHaveBeenCalledTimes(STAGE_ORDER.length);
             for (const [i, step] of STAGE_ORDER.entries()) {
                 const [messages, options] = fakeLlm.chatFull.mock.calls[i];
                 expect(options.temperature).toBe(LLM_DEFAULT_TEMPERATURE);
@@ -871,7 +877,8 @@ describe('AgentBodyController', () => {
                 .mockResolvedValueOnce({ content: JSON.stringify(NOVA_CONCEPT), finishReason: 'stop' })
                 .mockResolvedValueOnce({ content: JSON.stringify(NOVA_ANATOMY), finishReason: 'stop' })
                 .mockResolvedValueOnce({ content: JSON.stringify(NO_ORGANS), finishReason: 'stop' })
-                .mockResolvedValueOnce({ content: JSON.stringify(NO_OUTFIT), finishReason: 'stop' });
+                .mockResolvedValueOnce({ content: JSON.stringify(NO_OUTFIT), finishReason: 'stop' })
+                .mockResolvedValueOnce({ content: JSON.stringify(NO_EFFECTS), finishReason: 'stop' });
 
             const result = await injected.designBody(NOVA_STEM);
 
@@ -911,7 +918,8 @@ describe('AgentBodyController', () => {
                 .mockResolvedValueOnce({ content: JSON.stringify(NOVA_CONCEPT), finishReason: 'stop' })
                 .mockResolvedValueOnce({ content: JSON.stringify(NOVA_ANATOMY), finishReason: 'stop' })
                 .mockResolvedValueOnce({ content: JSON.stringify(NO_ORGANS), finishReason: 'stop' })
-                .mockResolvedValueOnce({ content: JSON.stringify(NO_OUTFIT), finishReason: 'stop' });
+                .mockResolvedValueOnce({ content: JSON.stringify(NO_OUTFIT), finishReason: 'stop' })
+                .mockResolvedValueOnce({ content: JSON.stringify(NO_EFFECTS), finishReason: 'stop' });
 
             const result = await injected.designBody(NOVA_STEM);
 
@@ -982,7 +990,8 @@ describe('AgentBodyController', () => {
                 .mockResolvedValueOnce({ content: JSON.stringify(NOVA_CONCEPT), finishReason: 'stop' })
                 .mockResolvedValueOnce({ content: JSON.stringify(NOVA_ANATOMY), finishReason: 'stop' })
                 .mockResolvedValueOnce({ content: JSON.stringify(NO_ORGANS), finishReason: 'stop' })
-                .mockResolvedValueOnce({ content: JSON.stringify(NO_OUTFIT), finishReason: 'stop' });
+                .mockResolvedValueOnce({ content: JSON.stringify(NO_OUTFIT), finishReason: 'stop' })
+                .mockResolvedValueOnce({ content: JSON.stringify(NO_EFFECTS), finishReason: 'stop' });
 
             const result = await injected.designBody(NOVA_STEM);
             expect(result.body.blueprintId).toBe('Nova');
@@ -1374,6 +1383,79 @@ describe('AgentBodyController', () => {
             expect(error).toBeInstanceOf(DesignValidationError);
             expect(error.message).toMatch(/unknown component/);
             expect(harness.written, 'a refused design writes nothing at all').toEqual([]);
+        });
+
+        // The LAST stage of the design authors entries of the `effects` registry; the save
+        // ships them in the body's own package. wiki/decisions/agent-body-design.md.
+        describe('a body designed with inborn effects', () => {
+            const effect = (over = {}) => ({
+                id: 'slowFrame',
+                name: 'Slow Frame',
+                target: 'component',
+                durationRounds: 0,
+                operations: [{ op: 'statDelta', params: { trait: 'Physical', stat: 'strength', value: -1 } }],
+                ...over
+            });
+
+            it('ships the effect in the body package, stamped with the body it belongs to', async () => {
+                const harness = makeSaveHarness();
+                const result = await harness.controller.saveDesign({ ...HAPPY_BODY, effects: [effect()] });
+
+                expect(result.saved).toBe(true);
+                // The manifest says this package carries the `effects` kind.
+                expect(harness.read(`${PACKAGE_DIR}/mod.json`).content).toContain('effects');
+
+                const effects = harness.read(`${PACKAGE_DIR}/effects.json`);
+                // Keyed by the package slug plus the authored id: the effect registry is
+                // GLOBAL, so two characters both authoring `slowFrame` would otherwise be
+                // one effect wearing two bodies.
+                expect(Object.keys(effects).filter((key) => key !== 'version')).toEqual(['novarunner_slowFrame']);
+                const authored = effects.novarunner_slowFrame;
+                expect(authored.name).toBe('Slow Frame');
+                expect(authored.durationRounds).toBe(0);
+                expect(authored.operations).toEqual([{ op: 'statDelta', params: { trait: 'Physical', stat: 'strength', value: -1 } }]);
+                // The stamp the model does not author: which body this effect was designed for.
+                expect(authored.appliesTo).toBe('novaRunner');
+            });
+
+            it('writes no effects file for a body that was designed without any', async () => {
+                const harness = makeSaveHarness();
+                await harness.controller.saveDesign(HAPPY_BODY);
+                expect(harness.written.some((path) => path.endsWith('effects.json')), 'no claim, no file').toBe(false);
+                expect(harness.read(`${PACKAGE_DIR}/mod.json`).content).not.toContain('effects');
+            });
+
+            it('refuses an operation a body may not be born with, and writes nothing', async () => {
+                // The closed set at the stage that authors for the body: an inborn effect
+                // that damages, moves or drops acts on the world every round without ever
+                // choosing to, and takes parameters from an action it has no part in.
+                const harness = makeSaveHarness();
+                const design = { ...HAPPY_BODY, effects: [effect({ operations: [{ op: 'damageComponent', params: { channel: 'heat', value: 1 } }] })] };
+                const error = await awaitThrown(harness.controller.saveDesign(design));
+                expect(error).toBeInstanceOf(DesignValidationError);
+                expect(error.message).toMatch(/not inborn-able/);
+                expect(error.message).toMatch(/statDelta/);
+                expect(harness.written, 'a refused design writes nothing at all').toEqual([]);
+            });
+
+            it('refuses an effect id that is not an id, and says what an id is', async () => {
+                const harness = makeSaveHarness();
+                const design = { ...HAPPY_BODY, effects: [effect({ id: 'slow frame!' })] };
+                const error = await awaitThrown(harness.controller.saveDesign(design));
+                expect(error.message).toMatch(/effects\[0\]\.id must be an id/);
+                expect(harness.written).toEqual([]);
+            });
+
+            it('refuses more effects than one body may carry', async () => {
+                const harness = makeSaveHarness();
+                const design = {
+                    ...HAPPY_BODY,
+                    effects: [effect({ id: 'a' }), effect({ id: 'b' }), effect({ id: 'c' }), effect({ id: 'd' })]
+                };
+                const error = await awaitThrown(harness.controller.saveDesign(design));
+                expect(error.message).toMatch(/has 4 entries/);
+                expect(harness.written).toEqual([]);
+            });
         });
     });
 });

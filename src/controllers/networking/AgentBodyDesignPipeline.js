@@ -9,6 +9,9 @@
  *   2. anatomy  (agent-body-anatomy)  the body tree + invented part recipes
  *   3. organs   (agent-body-organs)   the NEW organs, each attached to an invented part
  *   4. outfit   (agent-body-outfit)   the garments + what the body is born wearing
+ *   5. effects  (agent-body-effects)  what the body does INBORN, LAST because it is stated
+ *                                     against the finished body - its parts, the stats
+ *                                     those parts actually carry, what it ends up wearing
  *
  * The stages exist because a single prompt asked for all of it (prompt
  * v1.6.0 carried the whole anatomy spec, the organ law, the clothing law and
@@ -53,6 +56,10 @@ import {
     validateComponentRecipe,
     validateGarments,
     validateOutfit,
+    validateDesignEffects,
+    designableOperationsHelp,
+    DESIGNABLE_EFFECT_OPERATIONS,
+    MAX_BODY_EFFECTS,
     normalizeDesign,
     MAX_BODY_NODES,
     MAX_IC_RECIPES,
@@ -72,21 +79,25 @@ import {
 // ---------------------------------------------------------------------------
 
 /** The stages in order. The anatomy's parts are what the organs attach to;
- *  the body is what the outfit dresses; the concept seeds every stage. */
-export const STAGE_ORDER = Object.freeze(['concept', 'anatomy', 'organs', 'outfit']);
+ *  the body is what the outfit dresses; the concept seeds every stage. Effects come LAST:
+ *  an inborn effect is stated against the body that now exists, so it cannot be authored
+ *  before the body is. (`wiki/decisions/agent-body-design.md`) */
+export const STAGE_ORDER = Object.freeze(['concept', 'anatomy', 'organs', 'outfit', 'effects']);
 
 export const STAGE_PROMPT_KIND = Object.freeze({
     concept: 'agent-body-concept',
     anatomy: 'agent-body-anatomy',
     organs: 'agent-body-organs',
-    outfit: 'agent-body-outfit'
+    outfit: 'agent-body-outfit',
+    effects: 'agent-body-effects'
 });
 
 export const STAGE_PROMPT_VERSION = Object.freeze({
     concept: '1.0.0',
     anatomy: '1.0.0',
     organs: '1.0.0',
-    outfit: '1.0.0'
+    outfit: '1.0.0',
+    effects: '1.0.0'
 });
 
 /**
@@ -100,7 +111,10 @@ export const LLM_STAGE_MAX_TOKENS = Object.freeze({
     concept: LLM_DEFAULT_MAX_TOKENS * 2,
     anatomy: LLM_DEFAULT_MAX_TOKENS * 10,
     organs: LLM_DEFAULT_MAX_TOKENS * 4,
-    outfit: LLM_DEFAULT_MAX_TOKENS * 6
+    outfit: LLM_DEFAULT_MAX_TOKENS * 6,
+    // The lightest stage: at most a few short definitions, and its answer is legitimately
+    // empty most of the time.
+    effects: LLM_DEFAULT_MAX_TOKENS * 3
 });
 
 /** Default attempts per stage (E-6: named, not ad-hoc). */
@@ -232,6 +246,7 @@ class AgentBodyDesignPipeline {
             anatomy: null,
             organs: null,
             outfit: null,
+            effects: null,
             stages: []
         };
         for (let i = 0; i < STAGE_ORDER.length; i++) {
@@ -419,6 +434,8 @@ class AgentBodyDesignPipeline {
                 return this._organsSystemPrompt();
             case 'outfit':
                 return this._outfitSystemPrompt();
+            case 'effects':
+                return this._effectsSystemPrompt();
             default:
                 throw new Error('AgentBodyDesignPipeline: unknown stage "' + step + '"');
         }
@@ -488,6 +505,22 @@ class AgentBodyDesignPipeline {
                     '\n\nTHE BODY DESIGNED FOR THIS CHARACTER:\n\n' +
                     'STRUCTURE:\n' + JSON.stringify(ctx.anatomy.structure, null, 2) +
                     '\n\nDress this body: the garments it carries and what it is born wearing.\n' +
+                    'Respond with ONLY the JSON object matching the schema in the system prompt.';
+                break;
+            }
+            case 'effects': {
+                const worn = (ctx.outfit && Array.isArray(ctx.outfit.outfit) && ctx.outfit.outfit.length)
+                    ? ctx.outfit.outfit.map((entry) => entry.item + ' on ' + entry.component).join(', ')
+                    : '(born wearing nothing)';
+                prompt =
+                    'Character name: ' + identity.name +
+                    '\n\n' + this._conceptBlock(ctx) +
+                    '\n\nTHE FINISHED BODY:\n\n' +
+                    'STRUCTURE:\n' + JSON.stringify(ctx.anatomy.structure, null, 2) +
+                    '\n\nWEARING: ' + worn +
+                    '\n\nDecide what this body does INBORN: the effect it has simply by being this body, '
+                    + 'every round it stands, with no verb and no choice to make. Most bodies have none - '
+                    + 'answering with zero effects is the ordinary answer, not a failure.\n' +
                     'Respond with ONLY the JSON object matching the schema in the system prompt.';
                 break;
             }
@@ -670,6 +703,55 @@ class AgentBodyDesignPipeline {
         );
     }
 
+    /**
+     * The effects stage: what this body does INBORN.
+     *
+     * THE STAGE IS OPTIONAL BY DESIGN and says so out loud. A model asked for "the effect
+     * of this character" will produce one for a character that needs none, and the body
+     * then carries a permanent alteration nobody wanted; the prompt therefore names the
+     * empty answer as the ordinary one.
+     *
+     * THE OPERATION SET HERE IS NARROWER than the registry's. The shared law accepts every
+     * id in `EFFECT_OPERATIONS`, because a package or a verb may legitimately name them; an
+     * INBORN effect may name only the ones that say what a body IS. The reason is in
+     * `AgentBodyDesignRules.DESIGNABLE_EFFECT_OPERATIONS` and is quoted to the model, so
+     * the prompt and the validator state one rule (`CR T-1`).
+     * @returns {string}
+     */
+    _effectsSystemPrompt() {
+        const statLines = GRANTABLE_STAT_KEYS.join(', ');
+        return (
+            'You are the ESSENCE for slopSimulacrum, a persistent world simulation in which LLM-driven droids live as NPCs.\n' +
+            'The body of one character has been designed AND dressed (both appear in the user message). Your job: decide what this body does INBORN.\n\n' +
+            'WHAT AN INBORN EFFECT IS\n' +
+            '- An EFFECT is a named bundle of operations with a duration in rounds. An INBORN one is applied every time this body is spawned and stays as long as the body stands: it is what the character does by being what it is, with no verb and no choice.\n' +
+            '- MOST BODIES HAVE NONE. Zero effects is the ordinary, correct answer. Add one only when the character would be LESS THEMSELVES without it - a furnace-heart that runs hot, a rust-body that corrodes what it touches by existing, a still-frame that cannot catch fire.\n' +
+            '- An effect is NOT a body part, NOT an organ, NOT an item and NOT a verb. It is what those things do to the world just by running.\n' +
+            '- It changes what a body IS (a stat, a condition, a flag). It never adds parts, never moves the body through space, never damages things: those are what verbs and world laws do, and they are refused here.\n\n' +
+            'YOUR OUTPUT\n' +
+            'A single JSON object with one optional field (absent or [] = no inborn effect):\n' +
+            '- "effects": 0 to ' + MAX_BODY_EFFECTS + ' definitions. Each:\n' +
+            '  { "id": "<letters and digits only, 1-31 chars - this becomes the effect id the world names>",\n' +
+            '    "name": "<what the world SHOWS, e.g. Furnace Heart; at most 80 chars>",\n' +
+            '    "phrase": "<a few words said about the body in third person, e.g. ""is running hot""; optional; at most 80 chars>",\n' +
+            '    "target": "entity" or "component" - "component" means every part of this body that carries what the operations name; "entity" means the body as a whole,\n' +
+            '    "durationRounds": 0 (ALWAYS write 0: an inborn effect lasts as long as the body does),\n' +
+            '    "operations": [ one or more operations, listed below ],\n' +
+            '    "perRound": [ operations repeated every round, or omit ] }\n\n' +
+            'THE OPERATIONS YOU MAY USE (exactly these five; anything else is refused):\n' +
+            designableOperationsHelp() + '\n\n' +
+            'THE STATS YOU MAY NAME (as "trait": "...", "stat": "..." - split on the dot):\n' +
+            statLines + '\n\n' +
+            'FINAL CHECKLIST (one missed line is a design the server rejects and this stage is retried):\n' +
+            '- AT MOST ' + MAX_BODY_EFFECTS + ' effects, each with a unique "name" (letters and digits only).\n' +
+            '- EVERY operation one of: ' + DESIGNABLE_EFFECT_OPERATIONS.join(', ') + '.\n' +
+            '- EVERY trait/stat a pair from the list above; every condition and flag from the operation lines.\n' +
+            '- "durationRounds": 0.\n' +
+            '- An effect that changes nothing (no operation) is not an effect - leave it out.\n\n' +
+            'OUTPUT FORMAT: exactly one JSON object. No markdown, no code fences, no explanation outside the JSON.'
+        );
+    }
+
     // ------------------------------------------------------------------
     // Vocabulary renderers (ported from the single design prompt)
     // ------------------------------------------------------------------
@@ -734,6 +816,9 @@ class AgentBodyDesignPipeline {
                 break;
             case 'outfit':
                 output = this._validateOutfitStage(raw, errors, ctx);
+                break;
+            case 'effects':
+                output = this._validateEffectsStage(raw, errors);
                 break;
             default:
                 throw new Error('AgentBodyDesignPipeline: unknown stage "' + step + '"');
@@ -891,6 +976,24 @@ class AgentBodyDesignPipeline {
         return { garments, outfit, outfitDeclared: Array.isArray(raw.outfit) };
     }
 
+    /**
+     * The effects stage: at most `MAX_BODY_EFFECTS` inborn effect definitions, each held to
+     * the registry law by `validateDesignEffects` - the same function the save runs, and
+     * the same one boot runs over an `effects` package.
+     * THE STAGE VALIDATES, THE VALIDATOR NARROWS. The errors are what a corrective retry
+     * feeds back to the model, so the check must run here. What is COMPOSED is the authored
+     * list, unchanged: the monolithic `_validateDesign` runs the same function as its fact,
+     * and a value normalised twice (label folded, prose folded to a phrase) is a value the
+     * second pass reads differently than the first wrote it.
+     * @param {object} raw
+     * @param {string[]} errors
+     * @returns {{ effects: unknown[] }} the authored definitions, as written
+     */
+    _validateEffectsStage(raw, errors) {
+        validateDesignEffects(raw.effects, errors);
+        return { effects: Array.isArray(raw.effects) ? [...raw.effects] : [] };
+    }
+
     // ================================================================
     // Composition (the four stage outputs into one design)
     // ================================================================
@@ -936,7 +1039,11 @@ class AgentBodyDesignPipeline {
             garments: ctx.outfit.garments,
             internalComponents: [...ctx.organs.organs],
             outfit: ctx.outfit.outfit,
-            outfitDeclared: ctx.outfit.outfitDeclared
+            outfitDeclared: ctx.outfit.outfitDeclared,
+            // The inborn effects of the finished body, as authored. `_validateDesign` narrows
+            // them; the save turns the result into entries of the package's `effects` kind
+            // and names their ids on the blueprint.
+            effects: ctx.effects.effects
         });
     }
 }

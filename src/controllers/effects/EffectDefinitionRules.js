@@ -104,6 +104,15 @@ export function validateEffectDefinitionEntry(id, raw, errors) {
         errors.push(`an effect declares ${operations.length + perRound.length} operations, over the cap of ${MAX_EFFECT_OPERATIONS}`);
     }
 
+    // WHICH BODY WAS BORN WITH THIS, if any. Stamped by the agent-body save (the server
+    // knows which blueprint it is writing; the model does not get to claim a body), and
+    // hand-authorable by a mod that ships an effect for a body it also ships. Read at spawn
+    // by `InbornEffects`, which applies every effect declaring this entity's blueprint.
+    const appliesTo = raw.appliesTo === undefined ? null : raw.appliesTo;
+    if (appliesTo !== null && (typeof appliesTo !== 'string' || appliesTo.trim() === '' || appliesTo.length > MAX_EFFECT_NAME_CHARS)) {
+        errors.push(`appliesTo must be a non-empty blueprint key of at most ${MAX_EFFECT_NAME_CHARS} characters`);
+    }
+
     const name = validateEffectLabel(raw.name, 'name', id, MAX_EFFECT_NAME_CHARS, errors);
     const prose = raw.phrase === undefined && raw.prose === undefined ? null : raw.prose;
     if (prose !== null && (!prose || typeof prose !== 'object' || Array.isArray(prose))) {
@@ -119,6 +128,7 @@ export function validateEffectDefinitionEntry(id, raw, errors) {
         id,
         name,
         phrase,
+        appliesTo,
         target,
         durationRounds,
         stacking,

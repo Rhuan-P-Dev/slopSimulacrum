@@ -367,6 +367,10 @@ describe('WorldStateController public method surface', () => {
         // effect definition for the operator console and the NPC context.
         'listActiveEffects',
         'listEffectDefinitions',
+        // Added deliberately (wiki/decisions/effects-system.md): what a body was BORN with -
+        // the live effect definitions declaring a blueprint. Read at spawn, exposed so a
+        // panel can say what a designed body does instead of guessing from its parts.
+        'listInbornEffectIds',
         'moveEntity',
         'moveItemInEntity',
         'moveItemIntoContainer',

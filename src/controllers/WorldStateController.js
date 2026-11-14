@@ -18,6 +18,7 @@ import { recreateWorld as recreateWorldLogic, startWorld as startWorldLogic, sto
 import { equipItem, unequipItem, transferEquip, getEquippedItems, getAllEquippedItems, getEquippedItem, getEquippedItemByItemId, getEquippedItemForComponent, validateEquippedId } from './logic/EquipLogic.js';
 import { wearItem, getWornItems } from './logic/WearLogic.js';
 import { applyOutfit } from './logic/OutfitLogic.js';
+import { applyInbornEffects } from './effects/InbornEffects.js';
 import { addItemToContainer, removeItemFromContainer, moveItemIntoContainer, moveItemOutOfContainer, getContainerItems } from './logic/ContainerItemLogic.js';
 import { resolveItemStats } from './logic/ItemStatsLogic.js';
 import { buildSubControllersMap, registerSpawnObserver, registerStatChangeListener, registerDamageListener, initializeTurnSystem, initializeEnergyFlow, registerEquippedStatsCallback } from './logic/FacadeInitLogic.js';
@@ -600,6 +601,23 @@ class WorldStateController {
      * @param {string} entityId
      * @returns {{ applied: number, failed: number }}
      */
+    /**
+     * Put a just-spawned body's INBORN effects on it (the `inbornEffects` its blueprint
+     * declares, defined in the same mod package's `effects` kind).
+     * Implementation: src/controllers/effects/InbornEffects.js. Re-applied at every spawn
+     * rather than persisted, because it is a fact about the body, not about the run.
+     * @private
+     * @param {string} entityId
+     * @returns {{ applied: number, refused: number }}
+     */
+    _applyInbornEffects(entityId) {
+        // The ids come from the definition owner, not from the blueprint: the `blueprints`
+        // kind maps a key to its root components and has nowhere to carry such a claim, so
+        // the effect is what declares its body (`appliesTo`).
+        return applyInbornEffects(this, entityId, this.listInbornEffectIds(
+            this.stateEntityController?.getEntity?.(entityId)?.blueprint));
+    }
+
     _applyOutfit(entityId) {
         return applyOutfit(this, entityId);
     }
@@ -2558,6 +2576,17 @@ class WorldStateController {
      */
     listActiveEffects(targetId) {
         return this.effectEngine?.listActive({ id: targetId }) ?? [];
+    }
+
+    /**
+     * The effect ids a body is BORN with - the live `effects` definitions declaring this
+     * blueprint. The spawn path reads it; it is exposed so the panel and an inspector can
+     * say what a body was designed to do rather than guess from its parts.
+     * @param {string} blueprintKey
+     * @returns {string[]}
+     */
+    listInbornEffectIds(blueprintKey) {
+        return this.effectsController?.effectsDeclaredFor(blueprintKey) ?? [];
     }
 
     /**

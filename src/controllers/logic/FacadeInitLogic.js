@@ -70,6 +70,10 @@ function registerSpawnObserver(facade) {
         // rule is stated once. `data/mods/core-outfits/outfits.json`.
         facade._applyOutfit(entityId);
         facade._applyInitialSpawns(entityId);
+        // What a body DOES INBORN, last: it reads the body as it now stands (its parts, the
+        // stats they carry) and never consumes volume, so nothing here races the clothing or
+        // the loadout. `src/controllers/effects/InbornEffects.js`.
+        facade._applyInbornEffects(entityId);
     });
 }
 

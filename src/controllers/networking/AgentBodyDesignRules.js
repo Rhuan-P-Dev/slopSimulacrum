@@ -17,8 +17,12 @@
  * @module src/controllers/networking/AgentBodyDesignRules
  */
 
-import { FLAG_NAMES, STAT_NAMES, TRAIT_GROUPS, flatKey } from '../../../shared/StatVocabulary.js';
+import { CONDITION_NAMES, FLAG_NAMES, STAT_NAMES, TRAIT_GROUPS, flatKey } from '../../../shared/StatVocabulary.js';
 import { narrowVisualBlock } from '../../utils/materialLook.js';
+// The effect shape law, shared with the definition owner. The design's effects stage
+// authors entries of the `effects` registry, so it is held to the same text boot will
+// apply (`CR T-1`).
+import { validateEffectDefinitionEntry } from '../effects/EffectDefinitionRules.js';
 
 // ---------------------------------------------------------------------------
 // Closed vocabulary bounds (A-7: nothing in this feature is unbounded).
@@ -44,6 +48,31 @@ export const MAX_GARMENTS = 8;
 
 /** Max outfit entries (a small ensemble, not an inventory). */
 export const MAX_OUTFIT_ENTRIES = 8;
+
+/**
+ * How many inborn effects one designed body may carry.
+ *
+ * A cap, not a taste: every one of them is applied at every spawn of this body and runs
+ * for as long as the body stands, so a body authored with six of them is a body whose
+ * every round is mostly bookkeeping. Three is enough for a signature and too many to be
+ * a fog. (`wiki/decisions/agent-body-design.md`)
+ */
+export const MAX_BODY_EFFECTS = 3;
+
+/**
+ * The operations a designed body may be BORN with.
+ *
+ * THE REST OF THE CLOSED SET IS RESERVED, and not for want of imagination. A body that is
+ * born damaging things, moving itself or dropping matter acts on the world every round
+ * without ever choosing to - and those operations take their parameters from an action in
+ * flight (a channel, a count, a target room), which an inborn effect has no idea about.
+ * What a body may carry inborn is what it IS: a stat held at a value, a condition it
+ * always has, a flag its matter grants. The others stay what they were - what a VERB or a
+ * world law does. (`wiki/decisions/effects-system.md`)
+ */
+export const DESIGNABLE_EFFECT_OPERATIONS = Object.freeze([
+    'statSet', 'statDelta', 'addCondition', 'removeCondition', 'grantFlag',
+]);
 
 /** Max characters for a new organ's display name. */
 export const MAX_IC_LABEL_CHARS = 64;
@@ -651,6 +680,93 @@ export function validateOutfit(rawOutfit, context, errors) {
  * @param {object} node
  * @returns {object}
  */
+/**
+ * Validate the effects stage: the effects this body is BORN with.
+ *
+ * THE SHAPE IS NOT RE-IMPLEMENTED HERE. One entry of `effects` is one entry of the
+ * `effects` registry, and the law of that shape is `EffectDefinitionRules` - the same
+ * function `EffectsController` runs over the file at boot. A design accepted by a copy of
+ * that law would be refused by the swap, and the author would learn about it after the
+ * save. (`CR T-1`, `CR T-2`)
+ *
+ * WHAT THIS ADDS over the shared law, and only this: the stage-level cap, the per-entry
+ * position in the error text (the model is told WHICH entry broke), and the rule that an
+ * effect's `name` is an id, because it becomes the registry key of a real effect.
+ *
+ * ABSENT IS NOT EMPTY. `null` means the stage said nothing about effects and the body has
+ * none - the ordinary case. An empty array is also "none"; both save no `effects` package.
+ *
+ * @param {unknown} rawEffects - the authored `effects` value
+ * @param {string[]} errors - accumulated
+ * @returns {Array<{id: string, definition: Object>|null>} one slot per accepted entry,
+ *   in the authored order (a rejected entry is null and `errors` is non-empty)
+ */
+/**
+ * The prompt line for one designable operation: the id, and the params it takes. Written
+ * once here and quoted by the stage prompt, so what the model is told and what the
+ * validator enforces cannot drift apart.
+ * @returns {string}
+ */
+export function designableOperationsHelp() {
+    const conditions = Object.values(CONDITION_NAMES).join(', ');
+    const flags = GRANTABLE_FLAGS.join(', ');
+    return [
+        '- { "op": "statSet", "params": { "trait": "<trait group>", "stat": "<stat name>", "value": <number> } } - hold one stat of the target at a value while the effect stands',
+        '- { "op": "statDelta", "params": { "trait": "<trait group>", "stat": "<stat name>", "value": <number> } } - shift one stat by an amount (negative lowers it)',
+        '- { "op": "addCondition", "params": { "condition": "<' + conditions + '>" } } - the target always has this condition',
+        '- { "op": "removeCondition", "params": { "condition": "<' + conditions + '>" } } - the target cannot have this condition while the effect stands',
+        '- { "op": "grantFlag", "params": { "flag": "<' + flags + '>" } } - the target carries this flag'
+    ].join('\n');
+}
+
+export function validateDesignEffects(rawEffects, errors) {
+    if (rawEffects === undefined || rawEffects === null) return [];
+    if (!Array.isArray(rawEffects)) {
+        errors.push('"effects" must be an array of effect definitions');
+        return [];
+    }
+    if (rawEffects.length > MAX_BODY_EFFECTS) {
+        errors.push('"effects" has ' + rawEffects.length + ' entries (max ' + MAX_BODY_EFFECTS + ')');
+        return [];
+    }
+    const seen = new Set();
+    return rawEffects.map((raw, index) => {
+        const at = 'effects[' + index + ']';
+        // `id` is the registry key, `name` is the label the world shows. The stage authors
+        // both because the registry is keyed - and a field the law does not know (an
+        // invented `displayName`) would be dropped in silence, which is worse than
+        // refusing it.
+        const effectId = raw && typeof raw === 'object' ? raw.id : null;
+        if (!isSlug(effectId)) {
+            errors.push(at + '.id must be an id (letters and digits only, 1-31 chars) - it becomes the effect id the world names');
+            return null;
+        }
+        if (seen.has(effectId)) {
+            errors.push(at + '.id "' + effectId + '" is used twice in this design');
+            return null;
+        }
+        seen.add(effectId);
+        // The position prefix is added here, not inside the shared law: the law reports
+        // what is wrong with a definition, this stage says which one.
+        const entryErrors = [];
+        const definition = validateEffectDefinitionEntry(effectId, raw, entryErrors);
+        // The reserved-operation gate. The shared law only asks "is this a known
+        // operation id"; this asks "may a BORN body carry it", and the answer for the
+        // world-physics ops is no, whatever the law says about a package that names them.
+        if (definition !== null) {
+            for (const list of [definition.operations, definition.perRound]) {
+                for (const operation of list) {
+                    if (!DESIGNABLE_EFFECT_OPERATIONS.includes(operation.op)) {
+                        entryErrors.push(`operation "${operation.op}" is not inborn-able; an inborn effect may use only ${DESIGNABLE_EFFECT_OPERATIONS.join(', ')}`);
+                    }
+                }
+            }
+        }
+        errors.push(...entryErrors.map((text) => at + ': ' + text));
+        return definition === null || entryErrors.length > 0 ? null : { id: effectId, definition };
+    });
+}
+
 export function normalizeTree(node) {
     const normalized = {
         component: node.component,
@@ -685,7 +801,7 @@ export function normalizeTree(node) {
  * @returns {object}
  */
 export function normalizeDesign(parts) {
-    const { blueprintId, rationale, structure, components, garments, internalComponents, outfit, outfitDeclared } = parts;
+    const { blueprintId, rationale, structure, components, garments, internalComponents, outfit, outfitDeclared, effects } = parts;
     return Object.freeze({
         blueprintId,
         rationale,
@@ -693,6 +809,10 @@ export function normalizeDesign(parts) {
         components,
         garments,
         internalComponents,
-        ...(outfitDeclared ? { outfit } : {})
+        ...(outfitDeclared ? { outfit } : {}),
+        // The design's inborn effects, as validated pairs `{ id, definition }`. Absent when
+        // the body has none, which is the ordinary case and keeps a saved body's shape
+        // exactly what it was before this stage existed.
+        ...(effects && effects.length > 0 ? { effects } : {})
     });
 }
