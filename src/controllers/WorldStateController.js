@@ -166,6 +166,13 @@ class WorldStateController {
         // aggregation (same rule as craftingController / knowledgeController).
         /** @private {import('./worldRules/WorldRulesController.js')|null} */
         this.worldRulesController = deps.worldRulesController ?? null;
+        // EffectsController: the owner of effect DEFINITIONS (registry kind
+        // `effects`). Static configuration - deliberately NOT in the subControllers
+        // broadcast map, the same rule as worldRulesController. Null-tolerant: a
+        // hand-built facade without it is a world where no effect is defined, which
+        // is a complete world, not a broken one.
+        /** @private {import('./effects/EffectsController.js')|null} */
+        this.effectsController = deps.effectsController ?? null;
         // RegistryStore: the live world definition (wiki/decisions/mod-system.md).
         // Null-tolerant like the readers above — a hand-built test facade with no
         // store falls back to a seam read, which is the same content at boot. The
@@ -2495,6 +2502,28 @@ class WorldStateController {
         // Truth, project_rules §2): active rules only, defensive copies,
         // inactive keys omitted — the same shape the facade always returned.
         return this.worldRulesController.getActiveRules();
+    }
+
+    /**
+     * The live definition of one effect, or null when no such effect is defined.
+     * The frozen definition is returned as-is (not copied): it is frozen through,
+     * so handing it out cannot let a caller edit the world definition. Every reader
+     * - the effect engine, the live operator, the LLM context - asks through here
+     * rather than reaching into `effectsController` (AP-5).
+     * @param {string} effectId
+     * @returns {Object|null}
+     */
+    getEffectDefinition(effectId) {
+        return this.effectsController?.getDefinition(effectId) ?? null;
+    }
+
+    /**
+     * One line per live effect definition, for the operator console, the dev panel
+     * and the NPC context. Empty (never null) when the controller is unwired.
+     * @returns {Array<{id: string, name: string, phrase: string|null, durationRounds: number, target: string}>}
+     */
+    listEffectDefinitions() {
+        return this.effectsController?.definitionSummaries() ?? [];
     }
 
     // =========================================================================

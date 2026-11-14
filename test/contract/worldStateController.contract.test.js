@@ -287,6 +287,10 @@ describe('WorldStateController public method surface', () => {
         'getDoorPosition',
         'getDroppedItems',
         'getDroppedItemsByRoom',
+        // Added deliberately (wiki/decisions/effects-system.md): the effect-definition
+        // passthrough, so the engine, the live operator and the NPC context never reach
+        // into EffectsController (AP-5). Mirrors getWorldRules().
+        'getEffectDefinition',
         'getEntities',
         'getEntity',
         // Added deliberately (entity_attributes): whole-entity attribute
@@ -355,6 +359,9 @@ describe('WorldStateController public method surface', () => {
         // Added deliberately (README §World lifecycle): "is this server simulating"
         // read from the tick system itself, so no layer keeps a second guess.
         'isWorldRunning',
+        // Added deliberately (wiki/decisions/effects-system.md): one line per live
+        // effect definition for the operator console and the NPC context.
+        'listEffectDefinitions',
         'moveEntity',
         'moveItemInEntity',
         'moveItemIntoContainer',

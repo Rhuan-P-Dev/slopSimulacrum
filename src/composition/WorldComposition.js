@@ -68,6 +68,7 @@ import CraftingController from '../controllers/crafting/CraftingController.js';
 import MachineRegistryController from '../controllers/core/MachineRegistryController.js';
 import KnowledgeController from '../controllers/knowledge/KnowledgeController.js';
 import WorldRulesController from '../controllers/worldRules/WorldRulesController.js';
+import EffectsController from '../controllers/effects/EffectsController.js';
 import OnDamageDropListener from '../controllers/worldRules/OnDamageDropListener.js';
 
 // Logic controllers (depend on data stores)
@@ -258,6 +259,12 @@ export function buildWorldState(tickSystem = null, registryStore = null, { modLo
     // file → all rules off (legacy behavior, bit-identical world).
     const worldRulesRegistry = store.read(REGISTRY_KINDS.WORLD_RULES);
     const worldRulesController = new WorldRulesController(worldRulesRegistry);
+    // Effects layer: the definition owner for the `effects` registry kind. Unlike
+    // the world-rules owner it is handed the STORE rather than a snapshot, because
+    // an effect definition is looked up at apply time - a mod applied at the round
+    // boundary must be able to add an effect without a restart. The same
+    // "off, never crash" degradation as the world-rules layer: no file, no effects.
+    const effectsController = new EffectsController({ registries: store });
 
     // =========================================================================
     // 0.5: FAIL-FAST STARTUP VALIDATION — validate all compositions now,
@@ -514,6 +521,11 @@ export function buildWorldState(tickSystem = null, registryStore = null, { modLo
         // broadcast map: static config data must stay out of the full-state
         // aggregation (same rule as craftingController / knowledgeController).
         worldRulesController,
+        // EffectsController: the effect definition owner (registry kind `effects`).
+        // Static configuration, so - like worldRulesController - deliberately NOT in
+        // the subControllers broadcast map. Null-tolerant on the facade: a test may
+        // hand-build it without one, and the world then simply has no effects.
+        effectsController,
         // OnDamageDropListener: enforcement arm of the onDamage world-event rule.
         // Null-tolerant like worldRulesController — a test may hand-build the facade
         // without it. Deliberately NOT in the subControllers broadcast map (same rule).
