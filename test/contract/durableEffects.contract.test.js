@@ -1,5 +1,6 @@
 /**
- * Feature: durable effects (EffectTracker) — CONTRACT tests driven through the
+ * Feature: durable effects (the effects engine, EffectEngine) — CONTRACT tests
+ * driven through the
  * real turn machine. Two scenarios the grabDuration suite does not cover:
  *
  *   1. TWO coexisting tracked effects on the SAME trait.stat must undo each effect's
@@ -103,7 +104,7 @@ function grabParams(world, victimId) {
     };
 }
 
-const liveEffects = (world) => world.effectTracker?.getActiveEffects?.() ?? {};
+const liveEffects = (world) => world.effectEngine?.getInlineEffects?.() ?? {};
 const activeCount = (world) => Object.keys(liveEffects(world)).length;
 
 // Rounds are advanced with a small, strictly increasing tick so each onTick()
@@ -202,7 +203,7 @@ describe('durable effects — Immediate-mode (non-queued) grab tracking', () => 
         const victimBallId = ballId(world, victimId);
         const baseline = moveOf(world, victimBallId);
         expect(baseline, 'the victim should start with a positive move stat').toBeGreaterThan(0);
-        expect(world.effectTracker.getCurrentRound(), 'no round has started yet').toBeNull();
+        expect(world.effectEngine.getCurrentRound(), 'no round has started yet').toBeNull();
 
         const result = world.actionController.executeAction('grab', attackerId, grabParams(world, victimId));
         expect(result.success, `an immediate in-range grab should succeed: ${JSON.stringify(result.error)}`).toBe(true);
@@ -248,7 +249,7 @@ describe('durable effects — Immediate-mode (non-queued) grab tracking', () => 
             'the mid-round grab IS tracked when a round is active (one live effect)'
         ).toBe(1);
         expect(
-            world.effectTracker.getCurrentRound(),
+            world.effectEngine.getCurrentRound(),
             'a round is live during planning (the grab expiration is anchored to it)'
         ).not.toBeNull();
 

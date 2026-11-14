@@ -60,10 +60,18 @@ export const EFFECT_OPERATIONS = Object.freeze({
     MOVE_BY: 'moveBy',
     MOVE_TO: 'moveTo',
     TRAVERSE_DOOR: 'traverseDoor',
-    // ---- the body's parts ----
-    ADD_COMPONENT: 'addComponent',
-    REMOVE_COMPONENT: 'removeComponent',
     // ---- record only: never a mutation of world state ----
+    //
+    // The body's parts are NOT in this set, deliberately, and the reason is in the
+    // code rather than in taste: an entity's component records are produced only by
+    // `EntityController.createEntityFromBlueprint`, which runs at spawn, so there is
+    // no live mount to call; and the only destruction path
+    // (`WorldStateController._forceDirectRemoval`) is a private delegator of the
+    // damage pipeline, which owns existence bookkeeping, content spill and the
+    // capability re-evaluation. An op reaching past either would leave the capability
+    // cache and the removal cascade disagreeing with the body. Growing or destroying
+    // a part is therefore its own change - one that first makes a public mount path -
+    // and these two ids stay RESERVED for it (`wiki/decisions/effects-system.md`).
     LOG: 'log',
     EMIT_EVENT: 'emitEvent',
 });
@@ -77,6 +85,11 @@ export const EFFECT_OPERATIONS = Object.freeze({
  * asked for, and un-dropping a chunk would move matter the room already has.
  * `CR E-1`'s honesty applies backwards in time too — a revert must say what it
  * does not undo rather than pretend to rewind.
+ *
+ * A granted FLAG is reversible because `ComponentController.removeGrantedFlag` is the
+ * exact inverse of `addGrantedFlag`, and only a flag this effect added is taken back
+ * (a flag the component already had - derived from its materials, or granted by an
+ * organ - survives the effect that merely matched its name).
  *
  * The spatial moves are absent on purpose: a position revert is only sound while
  * the origin is still valid, and the room may have moved underneath the effect.
@@ -116,12 +129,18 @@ export const EFFECT_TARGETS = Object.freeze({
  * the expiry pushed out, so a repeated hit does not stack and does not disturb
  * any other live effect on the same stat.
  *
+ * `STRONGEST` is deliberately absent. Comparing strengths needs two applications
+ * of the same definition to carry different magnitudes, and nothing in the running
+ * system can produce that - the magnitude comes from the definition, so a repeat
+ * application is always equal to itself. A mode no caller can exercise is debt
+ * written today for a future that has not asked for it (`CR CHG-1`); it stays
+ * RESERVED for the change that adds a per-application magnitude (`CR CHG-2`).
+ *
  * @type {Object.<string, string>}
  */
 export const EFFECT_STACKING = Object.freeze({
     REFRESH: 'refresh',
     INDEPENDENT: 'independent',
-    STRONGEST: 'strongest',
     CAPPED: 'capped',
 });
 

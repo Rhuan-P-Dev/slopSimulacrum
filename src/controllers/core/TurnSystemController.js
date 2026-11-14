@@ -850,8 +850,12 @@ class TurnSystemController {
         // expiration against `round`. Best-effort: a missing tracker is a no-op. The
         // queued path reads the same round in _resolveRound and is bit-identical.
         const facade = this.worldStateController;
-        if (facade?.effectTracker && typeof facade.effectTracker.setCurrentRound === 'function') {
-            facade.effectTracker.setCurrentRound(round);
+        if (facade?.effectEngine && typeof facade.effectEngine.setCurrentRound === 'function') {
+            facade.effectEngine.setCurrentRound(round);
+            // The effects layer's per-round step. It runs at the START of a round and
+            // skips anything applied in that same round, so an effect applied at round 7
+            // with a per-round stream first ticks at round 8.
+            facade.effectEngine.onRoundStart?.(round);
         }
         this._resetBarrierForNewRound();
         // RECURRENT actions are re-queued now, during planning, so the current
@@ -1096,11 +1100,11 @@ class TurnSystemController {
             Logger.warn(`[TurnSystem] Round ${round}: facade not injected — cannot resolve.`);
             return;
         }
-        // Temporal effect system (ConsequenceDispatcher + EffectTracker): the round is
-        // published at start (_roundStart). Here only the round-end pass
-        // (expireEffects) reverts any effect whose expiration round has passed.
-        // Best-effort: a missing tracker is a no-op.
-        const effectTracker = facade?.effectTracker ?? null;
+        // Effects layer (ConsequenceDispatcher + EffectEngine): the round is published
+        // at start (_roundStart). Here only the round-end pass (expireEffects) reverts
+        // any effect whose expiration round has passed.
+        // Best-effort: a missing engine is a no-op.
+        const effectEngine = facade?.effectEngine ?? null;
 
         // 0.5. Grab the per-agent feedback store (Feature E) so the resolution
         // loop can record real outcomes for NPC agents.  Best-effort: missing
@@ -1224,15 +1228,15 @@ class TurnSystemController {
         //    the key set is empty anyway) and broadcast the settled world.
         this._queues = {};
 
-        // Temporal effect expiration: the generic engine (ConsequenceDispatcher routes
-        // stat consequences; EffectTracker owns the baseline + expiration). At the end
-        // of every round — before the settled broadcast so clients see restored values
-        // — revert any effect whose expiration round has passed. Effects re-executed
+        // Effect expiration: the one engine (ConsequenceDispatcher routes stat
+        // consequences through it; EffectEngine owns the contribution + expiration). At
+        // the end of every round — before the settled broadcast so clients see restored
+        // values — revert any effect whose expiration round has passed. Effects re-executed
         // this round were renewed, so their expiresRound is greater than this round and
         // they survive; only effects NOT re-executed (expiresRound <= this round) expire
         // and are restored to their first recorded baseline.
-        if (effectTracker && typeof effectTracker.expireEffects === 'function') {
-            effectTracker.expireEffects();
+        if (effectEngine && typeof effectEngine.expireEffects === 'function') {
+            effectEngine.expireEffects();
         }
 
         if (this._broadcaster?.broadcast) {

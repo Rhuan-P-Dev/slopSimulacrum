@@ -273,6 +273,28 @@ class ComponentController {
     }
 
     /**
+     * Takes back a granted flag - the exact inverse of `addGrantedFlag`, and it
+     * exists for one reason: a flag an effect granted must be removable when the
+     * effect expires, and without an inverse the effect could only ever add.
+     *
+     * Only the flag named, and only in `Physical.grantedFlags`. A flag DERIVED from
+     * the component's materials (read-time, via propertyTraitMapping) or produced by
+     * an organ is not in that list and is therefore untouched by this call - an
+     * effect cannot revoke a property of the matter a part is made of.
+     * @param {string} instanceId - The component instance ID.
+     * @param {string} flagName - The flag name to take back.
+     * @returns {boolean} True when a granted flag was removed.
+     */
+    removeGrantedFlag(instanceId, flagName) {
+        const stats = this.statsController.getStats(instanceId);
+        if (!stats || !Array.isArray(stats.Physical?.grantedFlags)) return false;
+        const current = stats.Physical.grantedFlags.filter((flag) => flag !== flagName);
+        if (current.length === stats.Physical.grantedFlags.length) return false;
+        this.statsController.setStats(instanceId, { Physical: { grantedFlags: current } });
+        return true;
+    }
+
+    /**
      * Adds a transient condition to a component (burning, wet, corroded).
      * Conditions are stored in the world state (`Physical.conditions`) so they
      * survive save/load and are visible to clients and the LLM context.

@@ -114,17 +114,6 @@ export const EFFECT_OPERATION_SPECS = Object.freeze({
         params: Object.freeze({ door: req(PARAM_TYPES.STRING) }),
         via: 'DoorTraversalHandler - the door is named and resolved against the entity CURRENT room at apply time, so the standing-at-the-door law still applies to an effect',
     },
-    [EFFECT_OPERATIONS.ADD_COMPONENT]: {
-        params: Object.freeze({
-            componentType: req(PARAM_TYPES.STRING),
-            slot: opt(PARAM_TYPES.STRING),
-        }),
-        via: 'the blueprint mount path (EntityController + capability re-evaluation); never a hand-appended component',
-    },
-    [EFFECT_OPERATIONS.REMOVE_COMPONENT]: {
-        params: Object.freeze({}),
-        via: 'StateEntityController.removeComponent plus the removal cascade it owns',
-    },
     [EFFECT_OPERATIONS.LOG]: {
         params: Object.freeze({ message: req(PARAM_TYPES.STRING), level: opt(PARAM_TYPES.STRING) }),
         via: 'LogConsequenceHandler (never the acting entity sentence: an effect has no actor to attribute)',
@@ -183,6 +172,20 @@ export function validateEffectOperation(operation, where = 'operation') {
         }
     }
     return errors;
+}
+
+/**
+ * Validate the `params` of one operation on its own — the runtime half of the same
+ * law `validateEffectOperation` checks for a definition. The engine calls this on
+ * every operation before running it, because an application can come from the
+ * operator or from code and never passed through the registry (`CR T-1`).
+ * @param {string} op
+ * @param {Object} params
+ * @returns {string[]} error messages; empty when the params fit the spec.
+ */
+export function validateEffectOperationParams(op, params = {}) {
+    if (!isEffectOperation(op)) return [`"${String(op)}" is not an effect operation`];
+    return validateEffectOperation({ op, params }, `the operation ${op}`);
 }
 
 /**

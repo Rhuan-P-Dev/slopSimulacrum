@@ -594,23 +594,24 @@ class ConsequenceDispatcher {
                     ...(extraHandlerContext || {})
                 };
 
-                // Temporal effect bookkeeping: the ConsequenceDispatcher is where the
+                // Durable stat consequences: the ConsequenceDispatcher is where the
                 // generic "an effect that expires after N rounds unless re-executed" is
-                // implemented. A consequence is durable when it declares a positive
-                // `expiresInRounds` (consequence-level, falling back to the action's).
-                // Only stat-mutating consequences are restorable, so only those are
-                // routed through the EffectTracker: beforeApply() resets a renewed effect
-                // to its first recorded baseline (flat, no stacking) and captures baselines;
-                // afterApply() (below) registers the expiration (this round +
-                // expiresInRounds).
+                // declared, and the effect ENGINE is where it is kept. A consequence is
+                // durable when it declares a positive `expiresInRounds`
+                // (consequence-level, falling back to the action's). Only stat-mutating
+                // consequences are restorable, so only those are routed through the
+                // engine: beforeApply() lifts a renewed effect's own contribution (flat,
+                // no stacking, and it does not disturb other live effects on the stat)
+                // and captures baselines; afterApply() (below) registers the expiration
+                // (this round + expiresInRounds).
                 let temporal = null;
                 let declaredDuration = null;
                 if (
                     (consequence.type === 'updateComponentStatDelta' || consequence.type === 'updateStat') &&
-                    (this.worldStateController?.effectTracker ?? null) != null &&
+                    (this.worldStateController?.effectEngine ?? null) != null &&
                     effectiveParams != null && effectiveParams.trait != null && effectiveParams.stat != null
                 ) {
-                    const effectTracker = this.worldStateController.effectTracker;
+                    const effectEngine = this.worldStateController.effectEngine;
                     declaredDuration = consequence.expiresInRounds ?? (action?.expiresInRounds ?? null);
                     if (typeof declaredDuration === 'number' && Number.isFinite(declaredDuration) && declaredDuration > 0) {
                         // The per-consequence index disambiguates two stat-mutating
@@ -619,13 +620,13 @@ class ConsequenceDispatcher {
                         // reset/refresh the first's bookkeeping.
                         const effectKey =
                             `${actionName}::${consequence.type}::${effectiveParams.trait}::${effectiveParams.stat}::${consequences.indexOf(consequence)}`;
-                        const components = effectTracker.resolveComponents(
+                        const components = effectEngine.resolveComponents(
                             targetResult.targetId,
                             consequence.target,
                             effectiveParams.trait,
                             effectiveParams.stat
                         );
-                        temporal = effectTracker.beforeApply(
+                        temporal = effectEngine.beforeApply(
                             effectKey,
                             components,
                             effectiveParams.trait,
@@ -657,7 +658,7 @@ class ConsequenceDispatcher {
                     dispatchResult != null &&
                     dispatchResult.success === true
                 ) {
-                    this.worldStateController.effectTracker.afterApply(
+                    this.worldStateController.effectEngine.afterApply(
                         temporal.effectKey,
                         temporal.components,
                         temporal.trait,
