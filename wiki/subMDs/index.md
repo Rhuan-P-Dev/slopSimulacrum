@@ -97,6 +97,7 @@ Game mechanics, visualizations, and feature systems.
 
 | Document | Description |
 |----------|-------------|
+| [Effects System](systems/effects_system.md) | Effects as named operation bundles with a duration: closed operation set, definition vs live-instance owners, round clock and revert by contribution, the four runtime application paths, and a designed body's inborn effects applied at spawn |
 | [Synergy System](systems/synergy.md) | Synergy scoring philosophy, scaling curve intent, preview system purpose, evaluation paths |
 | [Movement System](systems/movement_system.md) | Data-driven movement rationale, action-system separation, delta spatial design |
 | [World Map](systems/world_map.md) | Spatial visualization decoupling rationale, server-side graph design, two-level navigation |
