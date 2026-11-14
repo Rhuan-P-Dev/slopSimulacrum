@@ -8,9 +8,9 @@ Central coordinator for all floating window overlay panels. Replaces ConfigBarMa
 
 ## Registration Model
 
-Each panel registers itself with the manager at application startup rather than managing its own visibility. Registration is the manager's single coordination point: it tells the manager which panels it coordinates, along with each panel's config bar entry point and keyboard shortcut, so the manager can own open/close behavior, z-index stacking, and dismissal without any panel knowing about the others.
+Each panel registers itself with the manager at application startup rather than managing its own visibility. Registration is the manager's single coordination point: it tells the manager which panels it coordinates, along with each panel's config bar entry point and optional live data fetcher, so the manager can own open/close behavior, z-index stacking, and dismissal without any panel knowing about the others.
 
-**Programmatic panels**: a panel may register with null config-bar and shortcut entries — the Group Pick window does exactly this, opening only when a cluster click occurs on the spatial map. The manager coordinates it identically (exclusive visibility, z-index, dismissal); it simply has no button or key to trigger it.
+**Programmatic panels**: a panel may register with a null config-bar entry — the Group Pick window does exactly this, opening only when a cluster click occurs on the spatial map. The manager coordinates it identically (exclusive visibility, z-index, dismissal); it simply has no button to trigger it.
 
 ## Panel Contract
 
@@ -21,8 +21,8 @@ Panels interact with the manager through a small uniform interface. The uniformi
 ### Why exclusive visibility?
 Having multiple floating panels overlap creates visual clutter and user confusion. Most panels show different aspects of the same context (entity state, actions, inventory), and only one is relevant at a time.
 
-### Why keyboard shortcuts?
-Power users need fast access to panels. Keyboard shortcuts (1-4) provide instant toggle without clicking config bar buttons. Escape provides universal close.
+### Why does Escape close all panels?
+Whichever panel is open, Escape (or a click on the shared backdrop) dismisses it without reaching for the panel's own close button — a universal dismiss that works no matter which panel is active. Panels open from their config-bar buttons only; there are no numeric opening shortcuts (removed on purpose).
 
 ### Why click-outside dismissal?
 The shared backdrop serves as an affordance that clicking outside the panel will close it. This matches common UI patterns users expect from overlay/modal interfaces.

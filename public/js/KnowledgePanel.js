@@ -1121,8 +1121,7 @@ function shapeTraitMap(raw) {
 
 /**
  * The Knowledge overlay panel. Registered with the OverlayManager as
- * `overlayManager.register('knowledge', panel, 'btn-knowledge', null)` —
- * no numeric keyboard shortcut (same treatment as crafting/room-chat/events).
+ * `overlayManager.register('knowledge', panel, 'btn-knowledge')`.
  */
 export class KnowledgePanel {
     /**

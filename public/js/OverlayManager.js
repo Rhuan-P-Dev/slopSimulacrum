@@ -1,7 +1,9 @@
 /**
  * OverlayManager
  * Central coordinator for all floating window overlay panels.
- * Manages exclusive visibility, keyboard shortcuts, and config bar button wiring.
+ * Manages exclusive visibility, config bar button wiring, and Escape dismissal.
+ * Panels open from their config-bar buttons only — there are no numeric
+ * panel-opening shortcuts (removed on purpose; do not re-add without a decision).
  * Replaces ConfigBarManager entirely.
  *
  * Pattern: Singleton registry with delegation to individual panel controllers.
@@ -38,12 +40,12 @@ export class OverlayManager {
      * Registers a panel with its controller and config bar button.
      * @param {string} panelId - Unique identifier (e.g., 'component-viewer').
      * @param {Object} controller - Panel controller with init()/show()/hide()/toggle() methods.
-     * @param {string} buttonId - Config bar button element ID.
-     * @param {string} [shortcutKey] - Keyboard shortcut key (e.g., '1').
+     * @param {string|null} [buttonId] - Config bar button element ID (null for
+     *   programmatically opened panels — no button, no key).
      * @param {Function} [showData] - Optional async data fetcher called before show(). Returns data for show().
      */
-    register(panelId, controller, buttonId, shortcutKey, showData) {
-        this._panels.set(panelId, { controller, buttonId, shortcutKey, showData });
+    register(panelId, controller, buttonId, showData) {
+        this._panels.set(panelId, { controller, buttonId, showData });
     }
 
     /**
@@ -68,8 +70,8 @@ export class OverlayManager {
         // Setup click-outside dismissal
         this._backdrop.addEventListener('click', () => this.closeAll());
 
-        // Setup keyboard shortcuts
-        this._setupKeyboardShortcuts();
+        // Setup the Escape key handler (the manager's only remaining key behavior)
+        this._setupEscapeKey();
     }
 
     /**
@@ -196,26 +198,15 @@ export class OverlayManager {
     }
 
     /**
-     * Sets up keyboard shortcuts.
+     * Sets up the Escape key handler: whichever panel is open, Escape closes
+     * all of them. This is the manager's only document-level key behavior —
+     * panels open from their config-bar buttons only (no numeric shortcuts).
      * @private
      */
-    _setupKeyboardShortcuts() {
+    _setupEscapeKey() {
         document.addEventListener('keydown', (event) => {
-            // Escape closes all panels
             if (event.key === 'Escape') {
                 this.closeAll();
-                return;
-            }
-
-            // Number keys 1-4 toggle registered panels
-            const key = event.key;
-            if (key >= '1' && key <= '4') {
-                for (const [panelId, { shortcutKey }] of this._panels.entries()) {
-                    if (shortcutKey === key) {
-                        this.toggle(panelId);
-                        return;
-                    }
-                }
             }
         });
     }
