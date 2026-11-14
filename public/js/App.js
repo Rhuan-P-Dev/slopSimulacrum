@@ -11,7 +11,7 @@
  * - StatBarsManager: Configurable stat bar visualization
  * - ComponentViewer: Component detail overlay with internal component panel
  * - NavActionsPanel: Navigation & actions overlay
- * - OverlayManager: Floating window coordination (exclusive visibility, shortcuts)
+ * - OverlayManager: Floating window coordination (exclusive visibility, Escape dismissal)
  */
 import { AppConfig } from './Config.js';
 import { WorldStateManager } from './WorldStateManager.js';
@@ -215,17 +215,17 @@ export class ClientApp {
         this._setupActionCallback();
 
         // 12. Register pick-up overlay with overlay manager
-        this.overlayManager.register('pick-up', this.pickUpOverlay, null, null);
+        this.overlayManager.register('pick-up', this.pickUpOverlay, null);
 
         // 12b. Group Pick overlay (cluster pickup window). Opened
         // programmatically by a cluster click on the spatial map — it has no
-        // config-bar button and no keyboard shortcut, so both register args
-        // are null (same shape as the pick-up overlay).
+        // config-bar button, so its buttonId register arg is null (same shape
+        // as the pick-up overlay).
         this.groupPickOverlay = new GroupPickOverlayController({
             onExecute: (items) => this._handleGroupPickExecute(items),
             onClose: () => {}
         });
-        this.overlayManager.register('group-pick', this.groupPickOverlay, null, null);
+        this.overlayManager.register('group-pick', this.groupPickOverlay, null);
 
         // 13. Setup listeners
         this._setupListeners();
@@ -688,41 +688,39 @@ export class ClientApp {
             this.inventory.setPlaceHandler((itemId) => this.executor.placeMachine(itemId));
             this.objectViewer.setRetrieveHandler((machineEntityId) => this.executor.retrieveMachine(machineEntityId));
 
-            // Register panels with overlay manager
-            this.overlayManager.register('component-viewer', this.componentViewer, 'btn-component-viewer', '1',
+            // Register panels with overlay manager. Panels open from their
+            // config-bar buttons only — there are no numeric shortcuts.
+            this.overlayManager.register('component-viewer', this.componentViewer, 'btn-component-viewer',
                 () => ({ entity: this._resolveComponentViewerEntity(), state: this.worldState.getState() })
             );
-            this.overlayManager.register('nav-actions', this.navActions, 'btn-nav-actions', '2',
+            this.overlayManager.register('nav-actions', this.navActions, 'btn-nav-actions',
                 () => this._buildNavActionsData()
             );
-            this.overlayManager.register('world-map', this.worldMap, 'btn-world-map', '3');
-            this.overlayManager.register('inventory', this.inventory, 'btn-inventory', '4');
-            // Crafting tab (no numeric shortcut — only '1'–'4' are wired in
-            // OverlayManager; same treatment as room-chat/events).
-            this.overlayManager.register('crafting', this.crafting, 'btn-crafting', null);
-            // Feature D: room chat panel (button in the config bar, no number
-            // shortcut — only 1-4 are wired in OverlayManager).
-            this.overlayManager.register('room-chat', this.roomChat, 'btn-room-chat', null);
-            // Knowledge tab (no numeric shortcut — same treatment as
-            // crafting/room-chat/events; fetches its own session-cached payload).
-            this.overlayManager.register('knowledge', this.knowledge, 'btn-knowledge', null);
-            // Object Viewer (no button, no shortcut — opened programmatically
-            // from a world-object click; fetches its payload live on open).
-            this.overlayManager.register('object-viewer', this.objectViewer, null, null,
+            this.overlayManager.register('world-map', this.worldMap, 'btn-world-map');
+            this.overlayManager.register('inventory', this.inventory, 'btn-inventory');
+            // Crafting tab (button in the config bar).
+            this.overlayManager.register('crafting', this.crafting, 'btn-crafting');
+            // Feature D: room chat panel (button in the config bar).
+            this.overlayManager.register('room-chat', this.roomChat, 'btn-room-chat');
+            // Knowledge tab (fetches its own session-cached payload).
+            this.overlayManager.register('knowledge', this.knowledge, 'btn-knowledge');
+            // Object Viewer (no button — opened programmatically from a
+            // world-object click; fetches its payload live on open).
+            this.overlayManager.register('object-viewer', this.objectViewer, null,
                 () => this._fetchObjectInspectData());
-            // Agent View (no numeric shortcut): dev LLM inspector — fetches live
-            // on open and auto-refreshes while open.
-            this.overlayManager.register('agent-view', this.agentView, 'btn-agent-view', null);
-            // Round Prose (no numeric shortcut): dev inspector — fetches live on open,
-            // on interaction, and via the live-round refresh hook below.
-            this.overlayManager.register('round-prose', this.roundProse, 'btn-round-prose', null);
+            // Agent View: dev LLM inspector — fetches live on open and
+            // auto-refreshes while open.
+            this.overlayManager.register('agent-view', this.agentView, 'btn-agent-view');
+            // Round Prose: dev inspector — fetches live on open, on
+            // interaction, and via the live-round refresh hook below.
+            this.overlayManager.register('round-prose', this.roundProse, 'btn-round-prose');
 
-            // Agent Body (no numeric shortcut): body designer — explicit Design
-            // body click (one LLM call per click), no auto-run on open.
-            this.overlayManager.register('agent-body', this.agentBody, 'btn-agent-body', null);
-            // System (no numeric shortcut — only 1-4 are wired): one provider turn per Ask
-            // click, so nothing fires on open (wiki/decisions/system-authoring.md).
-            this.overlayManager.register('system', this.systemPanel, 'btn-system', null);
+            // Agent Body: body designer — explicit Design body click
+            // (one LLM call per click), no auto-run on open.
+            this.overlayManager.register('agent-body', this.agentBody, 'btn-agent-body');
+            // System: one provider turn per Ask click, so nothing fires on
+            // open (wiki/decisions/system-authoring.md).
+            this.overlayManager.register('system', this.systemPanel, 'btn-system');
 
             // Drop selector is NOT registered with OverlayManager — it only opens from inventory clicks
             // and has its own show/hide lifecycle

@@ -21,7 +21,7 @@ A modular vanilla JavaScript architecture using dependency injection. The main o
 | Inventory Manager | Inventory overlay with drag-and-drop items; client-local filter state (contains-item toggle + name search) applied as a pure derivation inside the render path — a view-only concern that never mutates, persists, or pushes state |
 | Drop Selector Controller | Drop component selection floating window |
 | Group Pick Overlay | Cluster pickup window: per-type stacks with quantity steppers + search filter; opened by a cluster click on the spatial map, not by a config-bar button — [Group Pick](group_pickup.md) |
-| Overlay Manager | Floating window coordination (exclusive visibility, keyboard shortcuts) |
+| Overlay Manager | Floating window coordination (exclusive visibility, Escape dismissal) |
 | Client Error Controller | Error resolution and formatting |
 | Turn Controller | Turn HUD (round/phase — no countdown: planning is unlimited), per-round queue list, ready/lock-in, with the Space key as the same lock-in (keyboard shortcut), and barrier status (ready count, who is still planning; when and why planning closed). Why the Space shortcut exists: pressing the Space key commits "my plan is done, move forward" with the exact same action as the existing ✅ Lock in button — identical injected `onReady` callback → identical `POST /turns/ready/:entityId` (no new route, no new controller state) — so the player can end their planning with a single named gesture instead of reaching for the primary button; the key fires only when the same server barrier shows the lock-in controls (planning open, player still pending), and is inert while typing or on focusable widgets, so it never steals a typing gesture. |
 | Knowledge Panel | Read-only reference codex overlay (trait/stat derivation chain, recipes, item types) — static registries fetched once per session; no world-state dependency, degrades to per-section empty states or an in-panel error card |
@@ -40,13 +40,13 @@ User interactions flow through the event dispatcher into the selection controlle
 
 **Why the drop flow spans multiple modules**: Each part of the drop interaction owns a distinct concern — the inventory owns item selection, the drop selector owns target-component selection, the world map owns location selection, and action execution dispatches the final request. Splitting the flow this way keeps each module single-responsibility, and the server remains the authority on whether a drop is valid.
 
-**Overlay Registration**: Each panel registers itself with the OverlayManager rather than managing its own visibility. Registration gives the manager a single coordination point: it owns the config bar button listeners, keyboard shortcuts, and shared backdrop for all registered panels, so panel controllers never need to know about each other.
+**Overlay Registration**: Each panel registers itself with the OverlayManager rather than managing its own visibility. Registration gives the manager a single coordination point: it owns the config bar button listeners, Escape dismissal, and shared backdrop for all registered panels, so panel controllers never need to know about each other.
 
-**Why centralized overlay coordination**: Previously, each panel managed its own visibility independently, allowing multiple panels to overlap. The OverlayManager enforces exclusive visibility, manages z-index stacking, provides keyboard shortcuts (1-4 for panels, Escape to close all), and click-outside dismissal via a shared backdrop.
+**Why centralized overlay coordination**: Previously, each panel managed its own visibility independently, allowing multiple panels to overlap. The OverlayManager enforces exclusive visibility, manages z-index stacking, provides Escape dismissal (closes all open panels), and click-outside dismissal via a shared backdrop.
 
 ## 4. Keyboard Shortcuts
 
-**Why keyboard shortcuts exist for overlay management**: The config bar panels (actions, inventory, synergy, etc.) are managed by the OverlayManager, which provides keyboard shortcuts for rapid access without mouse navigation. Shortcuts 1-4 toggle specific panels, and Escape closes all panels.
+**Why Escape closes all overlay panels**: The config bar panels (actions, inventory, synergy, etc.) are managed by the OverlayManager, which owns a single document-level Escape handler: whichever panel is open, Escape dismisses it (a backdrop click does the same). Panels open from their config-bar buttons only — there are no numeric opening shortcuts (removed on purpose).
 
 **Why the Alt key restores the previous action**: After executing an action, all selections are cleared and the user is left without an active action. The Alt key shortcut restores the previously active action, enabling rapid re-execution of the last action or quick alternation between two actions. This improves workflow efficiency by eliminating the need to navigate back through the UI to re-select an action that was just used.
 
