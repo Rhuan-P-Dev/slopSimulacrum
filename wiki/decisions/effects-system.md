@@ -115,6 +115,18 @@ through `facade.applyEffect` / `removeEffects` / `listActiveEffects`:
   cannot see its own effects cannot plan around them, and one round left is not worth the
   same plan as ten.
 
+**An effect is two calls, in this order, and the System prompt says so.** It is a TYPE (a
+row in the `effects` registry) and an APPLICATION (a live instance on one entity), and
+`apply_effect` never creates the first. That is not a style rule: every proposed action is
+re-checked against the definitions that exist **at propose time**, so a plan of
+`[register_effect, apply_effect]` is refused at the second proposal — it would be checked
+against a world where the type is not there yet. The working sequence is
+`register_effect` -> operator Execute (the type now exists) -> `apply_effect` naming it ->
+Execute, and `System prompt v2.2.0` spells that out with a worked example, because the
+failure this fixes is a model reaching for `apply_effect` with an id it invented. The
+refusal is typed (`EFFECT_UNKNOWN`) and names the ids that do exist, so the next call is a
+fix rather than another guess.
+
 **`register_effect` is memory-only**, like `create_room` and `spawn_world_object`. Its
 result names the durable path (`POST /mods/apply` after authoring an `effects` package)
 rather than writing it. A runtime definition is superseded — dropped, not shadowing — the

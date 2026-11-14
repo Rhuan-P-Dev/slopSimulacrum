@@ -30,6 +30,7 @@ import { UniversalTickSystem } from '../../src/utils/UniversalTickSystem.js';
 import { MAX_TICKS_PER_SECOND } from '../../src/utils/Constants.js';
 import { REGISTRY_KINDS } from '../../shared/RegistryKinds.js';
 import ConsequenceHandlers from '../../src/controllers/consequences/consequenceHandlers.js';
+import { WorldOperatorService } from '../../src/services/WorldOperatorService.js';
 import { PERSISTENCE_SCHEMA_VERSION } from '../../src/controllers/logic/PersistenceLogic.js';
 
 /** A composed world with one droid and no boot NPCs, so the effect has one target. */
@@ -225,6 +226,48 @@ describe('a runtime effect definition is session-only and never shadows a packag
 
         expect(world.effectsController.runtimeDefinitionIds()).toEqual([]);
         expect(world.getEffectDefinition('drip').durationRounds).toBe(9);
+    });
+});
+
+describe('define the type in the world, then apply it to an entity', () => {
+    /** The operator surface over the real world and the real definition owner. */
+    const operatorFor = (world) => new WorldOperatorService({
+        worldStateController: world,
+        registryStore: world.registryStore,
+    });
+
+    it('applies a type the world did not have until step 1 defined it and was executed', () => {
+        // The sequence the System prompt now spells out, pinned as behaviour: the definition
+        // step runs, and only then can the application be proposed and run. A prompt that
+        // promised an order the tools refuse is worse than no prompt at all.
+        const { world, entityId } = buildLiveWorld();
+        const service = operatorFor(world);
+
+        const defined = service.validateAction('register_effect', {
+            effectId: 'heavyLead',
+            definition: { target: 'component', durationRounds: 0, operations: [{ op: 'statDelta', params: { trait: 'Movement', stat: 'move', value: -5 } }] },
+        });
+        expect(defined.ok, JSON.stringify(defined.errors)).toBe(true);
+        expect(service.executeActions([defined.intent]).results[0].status).toBe('ok');
+        expect(world.getEffectDefinition('heavyLead')).toBeTruthy();
+
+        const applied = service.validateAction('apply_effect', { effectId: 'heavyLead', entityId });
+        expect(applied.ok, JSON.stringify(applied.errors)).toBe(true);
+        expect(service.executeActions([applied.intent]).results[0].status).toBe('ok');
+
+        // The type exists, and something of this body is now carrying it.
+        const running = world.effectEngine.getActiveEffects();
+        expect(Object.keys(running).some((id) => running[id].effectId === 'heavyLead')).toBe(true);
+    });
+
+    it('refuses to apply a type the world has never defined, by name, listing what does', () => {
+        const { world, entityId } = buildLiveWorld();
+        const service = operatorFor(world);
+        const result = service.validateAction('apply_effect', { effectId: 'inventedHere', entityId });
+        expect(result.ok).toBe(false);
+        expect(result.errors.join(' ')).toContain('inventedHere');
+        // The ids that DO exist are in the same answer, so the next call is a fix and not a guess.
+        expect(result.errors.join(' ')).toContain('burning');
     });
 });
 

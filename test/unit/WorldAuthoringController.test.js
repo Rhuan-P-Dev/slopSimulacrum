@@ -173,7 +173,17 @@ describe('WorldAuthoringController.handleChat — the loop', () => {
         // The literal, deliberately (`RP-2`): a prompt change is a version bump, so an
         // unannounced bump should fail here rather than pass silently. Bump the source constant
         // and this line together, and say so in the decision note that owns the prompt.
-        expect(seam.calls[0].options.system).toContain('system-authoring v2.1.1');
+        expect(seam.calls[0].options.system).toContain('system-authoring v2.2.0');
+        // The effects ordering is pinned as text, because the confusion it fixes is a prompt
+        // confusion: the model reached for apply_effect with a type it had invented. The two
+        // steps, their order, and the fact that a live verb never defines anything are what
+        // the prompt now has to say out loud (wiki/decisions/effects-system.md).
+        expect(seam.calls[0].options.system).toContain('EFFECTS ARE TWO STEPS');
+        expect(seam.calls[0].options.system).toMatch(/STEP 1 - CREATE THE TYPE[\s\S]*STEP 2 - APPLY IT TO THE ENTITY/);
+        expect(seam.calls[0].options.system).toContain('apply_effect does NOT create a type');
+        // The ordering truth, pinned because the tools enforce it: an application is checked
+        // against the types that exist at propose time, so the two steps are two calls.
+        expect(seam.calls[0].options.system).toContain('THESE ARE TWO CALLS, NOT ONE PLAN');
         expect(seam.calls[0].options.tools.map((t) => t.function.name)).toEqual([
             'list_registries', 'read_registry', 'find_definitions', 'propose_mod',
             'list_entities', 'inspect_entity', 'list_rooms', 'propose_action'

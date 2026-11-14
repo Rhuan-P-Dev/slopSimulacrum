@@ -460,9 +460,13 @@ const OPERATIONS = Object.freeze({
         summary: () => 'recreate the world'
     },
     apply_effect: {
-        desc: 'Apply an effect from the "effects" registry to a live entity (or one of its components) NOW. '
-            + 'It lands on the parts that carry what the effect acts on, expires after the declared rounds, '
-            + 'and reverts by its own contribution. e.g. { effectId: "burning", entityId: "ent-..." }.',
+        desc: 'STEP 2 of an effect: apply an ALREADY DEFINED effect type from the "effects" registry to a live entity '
+            + '(or one of its components) NOW. It lands on the parts that carry what the effect acts on, expires after '
+            + 'the declared rounds, and reverts by its own contribution. e.g. { effectId: "burning", entityId: "ent-..." }. '
+            + 'This does NOT define anything: it names a type that must ALREADY exist, because this action is checked '
+            + 'against the definitions live at propose time. If the effectId is not there yet, do STEP 1 first and get it '
+            + 'executed (register_effect -> Execute, or a "effects" package -> Write + apply), then propose this. '
+            + 'read_registry with kind "effects" shows the types that exist.',
         params: ['effectId', 'entityId', 'componentId', 'rounds'],
         required: ['effectId', 'entityId'],
         types: { effectId: 'string', entityId: 'string', componentId: 'string', rounds: 'number' },
@@ -492,7 +496,8 @@ const OPERATIONS = Object.freeze({
             + (p.rounds !== undefined ? ` for ${p.rounds} rounds` : '')
     },
     remove_effect: {
-        desc: 'Remove a live effect instance — by instance id from list_effects, or by effect id and/or entity. '
+        desc: 'Take a live effect off — remove an effect INSTANCE (one application of a type), not the type itself; '
+            + 'the definition stays and can be applied again. By instance id from list_effects, or by effect id and/or entity. '
             + 'Reverts what the effect did by its own contribution (a record-only effect, like damage, is not undone).',
         params: ['instanceId', 'effectId', 'entityId'],
         required: [],
@@ -515,7 +520,8 @@ const OPERATIONS = Object.freeze({
         summary: (p) => `remove effects ${p.instanceId || p.effectId || ''} on ${p.entityId || 'the named instance'}`
     },
     list_effects: {
-        desc: 'List the effects running on one entity right now (instance id, effect, round applied, rounds remaining).',
+        desc: 'Read back what is running on one entity right now (instance id, effect, round applied, rounds remaining) '
+            + '— the check that an apply_effect actually landed. The instance id here is what remove_effect takes.',
         params: ['entityId'],
         required: ['entityId'],
         types: { entityId: 'string' },
@@ -528,11 +534,14 @@ const OPERATIONS = Object.freeze({
         summary: (p) => `list effects on entity ${p.entityId}`
     },
     register_effect: {
-        desc: 'Define a NEW effect for the running world without a restart. definition is one entry exactly as the '
+        desc: 'STEP 1 of an effect: define a NEW effect TYPE for the running world without a restart, so that '
+            + 'apply_effect can then name it and put it on an entity. register_effect defines, apply_effect applies - '
+            + 'and they are two calls: this one must be EXECUTED before apply_effect can be proposed, because an '
+            + 'application is checked against the types that exist at propose time. definition is one entry exactly as the '
             + '"effects" registry shapes it (target, durationRounds, stacking, revert, operations, perRound — each '
             + 'operation names an id from the closed set in shared/EffectVocabulary.js). MEMORY ONLY: a restart '
-            + 'rebuilds effects from the packages, so to keep it, author the same entry into an "effects" package '
-            + 'and POST /mods/apply.',
+            + 'rebuilds effects from the packages and every entity carrying it stops, so to keep it, author the same '
+            + 'entry into an "effects" package and POST /mods/apply.',
         params: ['effectId', 'definition'],
         required: ['effectId', 'definition'],
         types: { effectId: 'string', definition: 'object' },
