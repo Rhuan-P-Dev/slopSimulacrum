@@ -230,6 +230,10 @@ describe('WorldStateController public method surface', () => {
         'addInternalComponent',
         'addItemToContainer',
         'addItemToEntity',
+        // Added deliberately (wiki/decisions/effects-system.md): apply an effect to a
+        // live target NOW. The runtime entry point every caller uses (live operator,
+        // inborn body effect) so none of them holds the engine (AP-5).
+        'applyEffect',
  // Added deliberately (wiki/subMDs/systems/energy_flow.md): the flow-scoped
         // broadcast-scope pair. Not an accidental addition — the energy-flow
         // turn step opens/closes it exactly once per turn.
@@ -361,6 +365,7 @@ describe('WorldStateController public method surface', () => {
         'isWorldRunning',
         // Added deliberately (wiki/decisions/effects-system.md): one line per live
         // effect definition for the operator console and the NPC context.
+        'listActiveEffects',
         'listEffectDefinitions',
         'moveEntity',
         'moveItemInEntity',
@@ -378,11 +383,18 @@ describe('WorldStateController public method surface', () => {
         // It is a composition-root operation exposed on the facade on purpose - the
         // client must not orchestrate despawn/seed/spawn itself (CR AP-13).
         'recreateWorld',
+        // Added deliberately (wiki/decisions/effects-system.md): define an effect for
+        // the rest of the session (memory only, like createRoom). Durably keeping it is
+        // the separate explicit write the result names.
+        'registerEffectDefinition',
         'registerSelection',
         'registerSelections',
         'releaseSelection',
         'removeBrokenComponent',
         'removeDroppedItem',
+        // Added deliberately (wiki/decisions/effects-system.md): remove live effect
+        // instances, reverting by contribution.
+        'removeEffects',
         'removeInternalComponent',
         'removeItemFromContainer',
         'removeItemFromEntity',

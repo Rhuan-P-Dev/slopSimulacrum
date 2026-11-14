@@ -458,6 +458,97 @@ const OPERATIONS = Object.freeze({
         validate: () => [],
         execute: (p, s) => s.wsc.recreateWorld(),
         summary: () => 'recreate the world'
+    },
+    apply_effect: {
+        desc: 'Apply an effect from the "effects" registry to a live entity (or one of its components) NOW. '
+            + 'It lands on the parts that carry what the effect acts on, expires after the declared rounds, '
+            + 'and reverts by its own contribution. e.g. { effectId: "burning", entityId: "ent-..." }.',
+        params: ['effectId', 'entityId', 'componentId', 'rounds'],
+        required: ['effectId', 'entityId'],
+        types: { effectId: 'string', entityId: 'string', componentId: 'string', rounds: 'number' },
+        validate: (p, s) => {
+            const errs = [];
+            s._requireNonNullEntity(p.entityId, errs);
+            if (!s.wsc.getEffectDefinition(p.effectId)) {
+                errs.push(`No effect "${p.effectId}" is defined. Known: ${s.wsc.listEffectDefinitions().map((entry) => entry.id).join(', ') || 'none'}.`);
+            }
+            if (p.componentId) s._requireComponent(p.entityId, p.componentId, errs);
+            if (p.rounds !== undefined && p.rounds !== null
+                && (!Number.isFinite(p.rounds) || !Number.isInteger(p.rounds) || p.rounds < 0)) {
+                errs.push('rounds must be a non-negative integer (0 means "until removed" by an explicit remove_effect).');
+            }
+            return errs;
+        },
+        execute: (p, s) => {
+            const target = p.componentId
+                ? { kind: 'component', id: p.componentId }
+                : { kind: 'entity', id: p.entityId };
+            const result = s.wsc.applyEffect(p.effectId, target, { rounds: p.rounds, source: 'operator' });
+            // Throws so the plan reports a failed action; the world is left untouched.
+            if (!result.ok) throw new Error(`${result.code}: ${result.error}`);
+            return result;
+        },
+        summary: (p) => `apply effect "${p.effectId}" to ${p.componentId || p.entityId}`
+            + (p.rounds !== undefined ? ` for ${p.rounds} rounds` : '')
+    },
+    remove_effect: {
+        desc: 'Remove a live effect instance — by instance id from list_effects, or by effect id and/or entity. '
+            + 'Reverts what the effect did by its own contribution (a record-only effect, like damage, is not undone).',
+        params: ['instanceId', 'effectId', 'entityId'],
+        required: [],
+        types: { instanceId: 'string', effectId: 'string', entityId: 'string' },
+        validate: (p, s) => {
+            const errs = [];
+            // Every field absent would remove EVERY live instance in the world; a lever
+            // that big needs to be named on purpose.
+            if (!p.instanceId && !p.effectId && !p.entityId) {
+                errs.push('Name instanceId, effectId or entityId — an empty selector would remove every live effect.');
+            }
+            if (p.entityId) s._requireNonNullEntity(p.entityId, errs);
+            return errs;
+        },
+        execute: (p, s) => s.wsc.removeEffects({
+            ...(p.instanceId ? { instanceId: p.instanceId } : {}),
+            ...(p.effectId ? { effectId: p.effectId } : {}),
+            ...(p.entityId ? { targetId: p.entityId } : {}),
+        }),
+        summary: (p) => `remove effects ${p.instanceId || p.effectId || ''} on ${p.entityId || 'the named instance'}`
+    },
+    list_effects: {
+        desc: 'List the effects running on one entity right now (instance id, effect, round applied, rounds remaining).',
+        params: ['entityId'],
+        required: ['entityId'],
+        types: { entityId: 'string' },
+        validate: (p, s) => {
+            const errs = [];
+            s._requireNonNullEntity(p.entityId, errs);
+            return errs;
+        },
+        execute: (p, s) => s.wsc.listActiveEffects(p.entityId),
+        summary: (p) => `list effects on entity ${p.entityId}`
+    },
+    register_effect: {
+        desc: 'Define a NEW effect for the running world without a restart. definition is one entry exactly as the '
+            + '"effects" registry shapes it (target, durationRounds, stacking, revert, operations, perRound — each '
+            + 'operation names an id from the closed set in shared/EffectVocabulary.js). MEMORY ONLY: a restart '
+            + 'rebuilds effects from the packages, so to keep it, author the same entry into an "effects" package '
+            + 'and POST /mods/apply.',
+        params: ['effectId', 'definition'],
+        required: ['effectId', 'definition'],
+        types: { effectId: 'string', definition: 'object' },
+        validate: (p, s) => {
+            const errs = [];
+            if (s.wsc.getEffectDefinition(p.effectId)) {
+                errs.push(`"${p.effectId}" is already defined — registering would shadow it. Use a new id.`);
+            }
+            return errs;
+        },
+        execute: (p, s) => {
+            const result = s.wsc.registerEffectDefinition(p.effectId, p.definition);
+            if (!result.ok) throw new Error(`${result.code}: ${(result.errors ?? []).join('; ')}`);
+            return result;
+        },
+        summary: (p) => `register effect "${p.effectId}" (memory only; to keep it, author an "effects" package)`
     }
 });
 

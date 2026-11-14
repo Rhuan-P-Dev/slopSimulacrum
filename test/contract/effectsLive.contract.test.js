@@ -29,6 +29,7 @@ import { buildWorldState } from '../../src/composition/WorldComposition.js';
 import { UniversalTickSystem } from '../../src/utils/UniversalTickSystem.js';
 import { MAX_TICKS_PER_SECOND } from '../../src/utils/Constants.js';
 import { REGISTRY_KINDS } from '../../shared/RegistryKinds.js';
+import ConsequenceHandlers from '../../src/controllers/consequences/consequenceHandlers.js';
 import { PERSISTENCE_SCHEMA_VERSION } from '../../src/controllers/logic/PersistenceLogic.js';
 
 /** A composed world with one droid and no boot NPCs, so the effect has one target. */
@@ -125,6 +126,105 @@ describe('live effects and the snapshot (decision D3, pinned)', () => {
         const snapshot = world.serialize();
         expect(snapshot.schemaVersion).toBe(PERSISTENCE_SCHEMA_VERSION);
         expect(snapshot.state.effects).toBeUndefined();
+    });
+});
+
+describe('an action inflicting an effect (the applyEffect consequence)', () => {
+    /**
+     * The handler map wired to the real world. What is under test is the bridge the
+     * `applyEffect` consequence type adds - that a resolved target becomes a real effect
+     * instance in the real engine. The dispatcher's own target resolution (`self` vs
+     * `target`, placeholder substitution) is pre-existing and pinned in
+     * ConsequenceDispatcher.dispatchConsequences.test.js, so it is not re-proven here.
+     * @param {Object} world - the real facade
+     * @returns {ConsequenceHandlers} the handler map
+     */
+    function handlersFor(world) {
+        const handlers = new ConsequenceHandlers({});
+        handlers.setWorldStateController(world);
+        return handlers;
+    }
+
+    it('lands on the part that carries the stat, through the handler map', () => {
+        const { world, entityId } = buildLiveWorld();
+        const componentId = moveBearingComponent(world, entityId);
+        const before = world.getComponentStats(componentId).Movement.move;
+
+        const registered = world.registerEffectDefinition('sluggish', {
+            target: 'component',
+            durationRounds: 2,
+            operations: [{ op: 'statSet', params: { trait: 'Movement', stat: 'move', value: 1 } }]
+        });
+        expect(registered.ok, JSON.stringify(registered.errors)).toBe(true);
+
+        // The round is published BEFORE the application, the way the TurnSystem does it:
+        // an instance applied while no round exists has no expiry round at all (it lasts
+        // until removed), so aging it would test a different rule than the one here.
+        world.effectEngine.setCurrentRound(1);
+        const result = handlersFor(world).dispatch('applyEffect', componentId,
+            { effectId: 'sluggish' }, { actorId: entityId, actionName: 'slash' });
+        expect(result.success, result.message).toBe(true);
+        expect(world.getComponentStats(componentId).Movement.move).toBe(1);
+
+        // And it is a real instance in the real engine: the round retires it and the
+        // contribution reverts, exactly as an operator-applied one would.
+        world.effectEngine.setCurrentRound(2);
+        world.effectEngine.expireEffects();
+        expect(world.getComponentStats(componentId).Movement.move).toBe(1);
+        world.effectEngine.setCurrentRound(3);
+        world.effectEngine.expireEffects();
+        expect(world.getComponentStats(componentId).Movement.move).toBe(before);
+    });
+
+    it('reports a refusal rather than pretending the hit landed', () => {
+        const { world, entityId } = buildLiveWorld();
+        const result = handlersFor(world).dispatch('applyEffect', entityId,
+            { effectId: 'noSuchEffect' }, { actorId: entityId, actionName: 'slash' });
+        expect(result.success).toBe(false);
+        expect(result.message).toContain('noSuchEffect');
+    });
+});
+
+describe('a runtime effect definition is session-only and never shadows a package', () => {
+    it('refuses an invalid definition with the rules it broke, and keeps the world readable', () => {
+        const { world } = buildLiveWorld();
+        const bad = world.registerEffectDefinition('halfWritten', {
+            target: 'component',
+            operations: [{ op: 'statSet', params: { trait: 'Movement' } }]
+        });
+        expect(bad.ok).toBe(false);
+        expect(bad.code).toBe('EFFECT_DEFINITION_INVALID');
+        expect(bad.errors.length).toBeGreaterThan(0);
+        expect(world.getEffectDefinition('halfWritten')).toBeNull();
+    });
+
+    it('drops the runtime entry once a package defines the same id, instead of outliving it', () => {
+        const { world } = buildLiveWorld();
+        // The store handle the real composition root wired into the controllers.
+        const store = world.registryStore;
+        expect(store, 'the world must expose the live registry store').toBeTruthy();
+        expect(world.effectsController?._registries, 'the effects controller reads that same store')
+            .toBe(store);
+
+        const registered = world.registerEffectDefinition('drip', {
+            target: 'component',
+            durationRounds: 1,
+            operations: [{ op: 'grantFlag', params: { flag: 'wet' } }]
+        });
+        expect(registered.ok, JSON.stringify(registered.errors)).toBe(true);
+        expect(world.getEffectDefinition('drip')).toBeTruthy();
+        expect(world.effectsController.runtimeDefinitionIds()).toEqual(['drip']);
+
+        // A mod swap that ships the same id as content: the packaged definition wins and
+        // the session entry is dropped. The reverse is the bug this pins - an overlay
+        // entry nobody maintains, shadowing content forever because its source version
+        // never moves again.
+        const effects = store.read(REGISTRY_KINDS.EFFECTS);
+        // The swap is the mod-apply path (`RegistryStore.replace`), not a private poke.
+        store.replace({ [REGISTRY_KINDS.EFFECTS]: { ...effects, drip: { target: 'component', durationRounds: 9, operations: [] } } });
+
+        expect(world.effectsController.runtimeDefinitionIds()).toEqual([]);
+        expect(world.getEffectDefinition('drip').durationRounds).toBe(9);
     });
 });
 

@@ -467,8 +467,20 @@ class LlmContextController {
             id: comp.id,
             type: comp.type,
             flags: (facade.getComponentFlags?.(comp.id) ?? facade.componentController?.getComponentFlags?.(comp.id)) || [],
-            conditions: (facade.getComponentConditions?.(comp.id) ?? facade.componentController?.getComponentConditions?.(comp.id)) || []
+            conditions: (facade.getComponentConditions?.(comp.id) ?? facade.componentController?.getComponentConditions?.(comp.id)) || [],
+            // What is being DONE to this part right now, and for how many rounds more.
+            // Distinct from `conditions` (a stored state marker): an effect is a live
+            // instance with a duration, a per-round stream and an expiry that will undo
+            // its own contribution. The model is told the remaining rounds because an
+            // effect that ends in one round is not worth the same plan as one with ten.
+            effects: (facade.listActiveEffects?.(comp.id) ?? [])
+                .map((instance) => ({ effectId: instance.effectId, remainingRounds: instance.remainingRounds }))
         }));
+        // Effects aimed at the body as a whole, not at one part. Names only, and the
+        // definitions the model can already see in its action list do the rest: the
+        // context budget is finite, so the effect id is the lookup key, not a paragraph.
+        const activeEffects = (facade.listActiveEffects?.(entity.id) ?? [])
+            .map((instance) => ({ effectId: instance.effectId, remainingRounds: instance.remainingRounds }));
 
         // Whole-entity attributes declared for the entity's blueprint
         // (data/mods/core-entity-attributes/entityAttributes.json): entity-owned stats (energy,
@@ -505,7 +517,8 @@ class LlmContextController {
             entityAttributes,
             equipped,
             inventory,
-            componentStates
+            componentStates,
+            activeEffects
         };
     }
 

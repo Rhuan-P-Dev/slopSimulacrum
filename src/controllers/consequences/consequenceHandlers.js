@@ -30,6 +30,7 @@ import { handleConsumeItemAndDamage } from './ConsumeItemHandler.js';
 import { handlePlaceMachine } from '../core/PlaceMachineHandler.js';
 import { handleRetrieveMachine } from '../core/RetrieveMachineHandler.js';
 import { handleDoorTraversal } from './DoorTraversalHandler.js';
+import { handleApplyEffect } from './ApplyEffectHandler.js';
 
 class ConsequenceHandlers {
     /**
@@ -156,6 +157,11 @@ class ConsequenceHandlers {
             // The touch action: raise the touched droid's Pleasure.pleasure by the
             // sensitivity of the touched body-part component (validated sensitive flag).
             stimulateSensitivePart: (targetId, params, context) => this.sensitivePartHandler._handleStimulateSensitivePart(targetId, params, context),
+            // Inflict an effect from the `effects` registry (burning, corroding, a
+            // designed body's inborn effect). The engine applies it; this line is only
+            // the bridge, so an inflicted effect and an operator-applied one are the
+            // same instance with the same expiry and the same revert.
+            applyEffect: (targetId, params, context) => handleApplyEffect(targetId, params, context, this.worldStateController),
         };
     }
 

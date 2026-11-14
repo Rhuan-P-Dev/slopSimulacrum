@@ -89,6 +89,18 @@ class EffectsController {
         this._definitions = null;
         /** @type {number} the store version `this._definitions` was built from. */
         this._builtFromVersion = -1;
+        /**
+         * @type {Object.<string, Object>} definitions registered at runtime, by id.
+         *
+         * MEMORY-ONLY, exactly like `create_room` and `spawn_world_object`
+         * (wiki/decisions/world-structure-authoring.md): a restart rebuilds `effects`
+         * from the packages and these are gone. Keeping one is a separate, explicit
+         * write through `ModPackageWriter` -> `POST /mods/apply`, never a side effect
+         * of registering — the same judgment-only contract the system-authoring tab
+         * settled on. They live HERE rather than in a sibling module so there is one
+         * read path to the definitions, not two that must agree.
+         */
+        this._runtime = {};
         // A boot-time read so the summary line is honest and a broken shipped file
         // is loud before the first effect is ever asked for.
         this._current();
@@ -158,12 +170,71 @@ class EffectsController {
      */
     _current() {
         const version = this._registries ? this._registries.version() : 0;
-        if (this._definitions !== null && this._builtFromVersion === version) {
-            return this._definitions;
+        if (this._definitions === null || this._builtFromVersion !== version) {
+            this._definitions = this._validate(readRegistryFrom(this._registries, REGISTRY_KINDS.EFFECTS));
+            this._builtFromVersion = version;
+            // A packaged definition of the same id has just arrived: it wins, and the
+            // runtime one is dropped rather than shadowing content nobody maintains. The
+            // reverse — a stale overlay entry outliving the mod that superseded it — is
+            // the bug this line exists to prevent, and it is pinned by a test.
+            for (const id of Object.keys(this._runtime)) {
+                if (Object.prototype.hasOwnProperty.call(this._definitions, id)) {
+                    delete this._runtime[id];
+                    Logger.info(`[EffectsController] runtime effect "${id}" is superseded by the packaged definition`);
+                }
+            }
         }
-        this._definitions = this._validate(readRegistryFrom(this._registries, REGISTRY_KINDS.EFFECTS));
-        this._builtFromVersion = version;
-        return this._definitions;
+        // The merge runs on the CACHED path too. Registering a definition does not move
+        // the store version, so a merge placed only in the rebuild branch would leave a
+        // freshly-registered effect invisible until the next mod swap.
+        return Object.keys(this._runtime).length > 0
+            ? { ...this._definitions, ...this._runtime }
+            : this._definitions;
+    }
+
+    /**
+     * Add an effect definition to the LIVE world, for the rest of this session.
+     *
+     * Validated by the same law as a packaged entry — one law, two sources
+     * (`CR T-2`) — and refused with the reasons rather than half-stored. It is NOT
+     * written to disk: the caller is told, in the result, what writing it durably
+     * would take, the way the agent-body design answers with `appliesVia`.
+     *
+     * @param {string} id - the effect id to define
+     * @param {Object} rawDefinition - one entry in the `effects` registry shape
+     * @returns {{ ok: boolean, errors?: string[], code?: string, appliesVia: string }}
+     */
+    registerRuntimeDefinition(id, rawDefinition) {
+        const appliesVia = 'POST /mods/apply (after authoring an "effects" package)';
+        if (typeof id !== 'string' || id === '' || id.startsWith('_') || NON_DEFINITION_KEYS.has(id)) {
+            return { ok: false, code: 'EFFECT_ID_INVALID', errors: ['"id" must be a non-empty effect id'], appliesVia };
+        }
+        if (this.getDefinition(id)) {
+            return { ok: false, code: 'EFFECT_ALREADY_DEFINED',
+                errors: [`"${id}" is already defined; register a different id`], appliesVia };
+        }
+        const errors = [];
+        const definition = this._validateEntry(id, { ...(rawDefinition ?? {}), id: undefined }, errors);
+        if (errors.length > 0 || definition === null) {
+            return { ok: false, code: 'EFFECT_DEFINITION_INVALID', errors, appliesVia };
+        }
+        this._runtime[id] = definition;
+        Logger.info(`[EffectsController] registered runtime effect "${id}" `
+            + '(memory only - a restart rebuilds effects from the packages)');
+        return { ok: true, appliesVia };
+    }
+
+    /**
+     * The ids that came from a runtime registration rather than a package. Reported so
+     * no reader mistakes a session-only definition for shipped content.
+     * @returns {string[]}
+     */
+    runtimeDefinitionIds() {
+        // Runs the same version-aware path as every other reader, so it can never report
+        // an entry the supersede sweep has already dropped - a reader that disagrees with
+        // `getDefinition` about what is live is a bug report waiting to be written.
+        this._current();
+        return Object.keys(this._runtime);
     }
 
     /**

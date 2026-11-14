@@ -458,6 +458,39 @@ describe('LlmContextController (context renderer)', () => {
         expect(data.self.entityAttributes).toEqual({ 'Physical.energy': { current: 0, max: 100, drainPerTurn: 1 } });
     });
 
+    it('carries the effects running on the body and on each part, with rounds remaining', () => {
+        // wiki/decisions/effects-system.md: an effect is a live instance with a clock, so
+        // the model is told BOTH the effect and how many rounds it has left. A burning
+        // that ends next round is not worth the same plan as one with ten, and a body
+        // that cannot see its own effects cannot plan around them.
+        const effectWorld = makeWorld({
+            listActiveEffects: (id) => (id === 'comp-core'
+                ? [{ instanceId: 'eff-1', effectId: 'burning', remainingRounds: 2 }]
+                : [{ instanceId: 'eff-9', effectId: 'sapped', remainingRounds: 7 }])
+        });
+        const ctrl = new LlmContextController({ actionRegistry: ACTION_REGISTRY });
+        ctrl.setWorldStateController(effectWorld);
+        const { data } = ctrl.buildContext('ent-self');
+
+        const core = data.self.componentStates.find((entry) => entry.id === 'comp-core');
+        expect(core.effects).toEqual([{ effectId: 'burning', remainingRounds: 2 }]);
+        // Effects asked per part, not once for the body: the other part gets its own read.
+        expect(data.self.componentStates.find((entry) => entry.id === 'comp-head').effects)
+            .toEqual([{ effectId: 'sapped', remainingRounds: 7 }]);
+        // Whole-body effects are their own field, not smeared over every part.
+        expect(data.self.activeEffects).toEqual([{ effectId: 'sapped', remainingRounds: 7 }]);
+    });
+
+    it('reads an empty effect list rather than crashing when nothing is running', () => {
+        // The facade read is optional-chained: a world whose engine is not wired still
+        // builds a context, because every LLM round would otherwise fail on a healthy body.
+        const ctrl = new LlmContextController({ actionRegistry: ACTION_REGISTRY });
+        ctrl.setWorldStateController(makeWorld());
+        const { data } = ctrl.buildContext('ent-self');
+        expect(data.self.activeEffects).toEqual([]);
+        for (const entry of data.self.componentStates) expect(entry.effects).toEqual([]);
+    });
+
     it('omits the Body attributes line contents when the blueprint declares no whole-entity attributes', () => {
         const noneWorld = makeWorld({
             // No declaration map → no attribute may render; the stable line

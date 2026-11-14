@@ -2526,6 +2526,53 @@ class WorldStateController {
         return this.effectsController?.definitionSummaries() ?? [];
     }
 
+    /**
+     * Apply an effect to a live target NOW (the round is the clock: state changes
+     * immediately, `expiresRound` counts from the round in progress). Every runtime
+     * caller - the live operator, an inborn body effect - comes through here rather
+     * than holding the engine (`CR AP-5`).
+     * @param {string} effectId
+     * @param {{ kind: 'entity'|'component', id: string }} target
+     * @param {{ rounds?: number, source?: string }} [options]
+     * @returns {{ ok: boolean, instanceIds?: string[], code?: string, error?: string }}
+     */
+    applyEffect(effectId, target, options = {}) {
+        return this.effectEngine?.apply(effectId, target, options)
+            ?? { ok: false, code: 'EFFECT_ENGINE_UNWIRED', error: 'no effect engine is wired' };
+    }
+
+    /**
+     * Remove live effect instances (by instance id, or by effect id and/or target).
+     * @param {{instanceId?: string, effectId?: string, targetId?: string}} selector
+     * @param {{ revert?: boolean }} [options]
+     * @returns {number} how many instances were removed
+     */
+    removeEffects(selector = {}, options = {}) {
+        return this.effectEngine?.remove(selector, options) ?? 0;
+    }
+
+    /**
+     * The live effect instances on one target, with their remaining rounds.
+     * @param {string} targetId
+     * @returns {Array<Object>}
+     */
+    listActiveEffects(targetId) {
+        return this.effectEngine?.listActive({ id: targetId }) ?? [];
+    }
+
+    /**
+     * Define an effect for the REST OF THIS SESSION (memory only, like `create_room`).
+     * Durably keeping it is a separate, explicit write - the result names the path, so
+     * nobody mistakes a session definition for shipped content.
+     * @param {string} id
+     * @param {Object} definition - one entry in the `effects` registry shape
+     * @returns {{ ok: boolean, errors?: string[], code?: string, appliesVia: string }}
+     */
+    registerEffectDefinition(id, definition) {
+        return this.effectsController?.registerRuntimeDefinition(id, definition)
+            ?? { ok: false, code: 'EFFECTS_UNWIRED', errors: ['no effects controller is wired'], appliesVia: 'POST /mods/apply' };
+    }
+
     // =========================================================================
     // DROPPED ITEMS PUBLIC API
     // =========================================================================
