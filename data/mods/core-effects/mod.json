@@ -1,0 +1,8 @@
+{
+    "id": "core-effects",
+    "version": "1.0.0",
+    "description": "Effect definitions: named bundles of operations that a verb, a world law, a designed body or the live operator apply to an entity or one of its components, and that end after a declared number of rounds.",
+    "content": [
+        "effects"
+    ]
+}

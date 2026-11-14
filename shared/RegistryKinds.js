@@ -60,6 +60,10 @@ export const REGISTRY_KINDS = Object.freeze({
     CRAFTING: 'crafting',
     MACHINES: 'machines',
     SYNERGY: 'synergy',
+    // The effect family: what a verb, a world law or a designed body does to a
+    // body over time. An entry names operations from `shared/EffectVocabulary.js`;
+    // the live instances are owned by `src/controllers/effects/EffectEngine.js`.
+    EFFECTS: 'effects',
     // The world family: the map, the props, the world-level rules.
     ROOMS: 'rooms',
     WORLD: 'world',

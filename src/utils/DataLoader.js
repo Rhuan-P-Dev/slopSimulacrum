@@ -51,6 +51,7 @@ const REGISTRY_SOURCE_PATHS = Object.freeze({
     [REGISTRY_KINDS.CRAFTING]: 'data/mods/core-crafting/crafting.json',
     [REGISTRY_KINDS.MACHINES]: 'data/mods/core-machines/machines.json',
     [REGISTRY_KINDS.SYNERGY]: 'data/mods/core-synergy/synergy.json',
+    [REGISTRY_KINDS.EFFECTS]: 'data/mods/core-effects/effects.json',
     [REGISTRY_KINDS.ROOMS]: 'data/mods/core-rooms/rooms.json',
     [REGISTRY_KINDS.WORLD]: 'data/mods/core-world/world.json',
     [REGISTRY_KINDS.WORLD_OBJECTS]: 'data/mods/core-world-objects/worldObjects.json',

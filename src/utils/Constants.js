@@ -595,6 +595,61 @@ export const IC_BASE_TICK_INTERVAL = 5;
 export const DEFAULT_HOST_VOLUME_FALLBACK = 10;
 
 // =========================================================================
+// EFFECTS CONSTANTS
+// =========================================================================
+
+/**
+ * How many effect instances one target (one entity, or one component of it) may
+ * carry at once. A bound is required, not tuned (`CR A-7`): an effect with a
+ * `perRound` stream is a loop that runs for as long as it is alive, and an
+ * unbounded per-target list turns one repeated hit into permanent per-round work.
+ *
+ * Refusal is typed (`EFFECT_LIMIT_REACHED`), never a silent drop: an effect that
+ * quietly failed to land is a world state nobody can explain later.
+ * @type {number}
+ */
+export const MAX_ACTIVE_EFFECTS_PER_TARGET = 16;
+
+/**
+ * How many effect instances the whole world may carry at once — the second bound,
+ * because per-target caps do not bound the total when many entities are affected.
+ * @type {number}
+ */
+export const MAX_ACTIVE_EFFECTS_WORLDWIDE = 2000;
+
+/**
+ * Upper bound on `durationRounds` accepted from a definition OR from a runtime
+ * `apply_effect` request. Without it one request asking for a very large number is
+ * indistinguishable from an effect that never ends, and "never ends" is already
+ * what `0` means — so a huge duration is always a mistake, never an intent.
+ * @type {number}
+ */
+export const MAX_EFFECT_DURATION_ROUNDS = 1000;
+
+/**
+ * Upper bound on the operations an effect definition may declare, counting
+ * `operations` and `perRound` together. An effect is a bundle of a few operations,
+ * and a definition with hundreds of them is a script wearing a data file.
+ * @type {number}
+ */
+export const MAX_EFFECT_OPERATIONS = 24;
+
+/**
+ * Upper bound on the effect definitions one provider (package or runtime overlay)
+ * may declare. Bounds the parse/validate work a single bad package can cause.
+ * @type {number}
+ */
+export const MAX_EFFECT_DEFINITIONS = 500;
+
+/**
+ * Upper bound on the `maxStacks` an effect may declare when its stacking is
+ * `capped`. Stacks are counted per target, so this multiplies directly into the
+ * per-target bound above.
+ * @type {number}
+ */
+export const MAX_EFFECT_STACKS = 10;
+
+// =========================================================================
 // SERVER CONSTANTS
 // =========================================================================
 
