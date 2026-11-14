@@ -44,30 +44,12 @@
 import Logger from '../../utils/Logger.js';
 import { REGISTRY_KINDS } from '../../../shared/RegistryKinds.js';
 import { readRegistryFrom } from '../../services/RegistryStore.js';
-import {
-    EFFECT_REVERT,
-    EFFECT_STACKING,
-    EFFECT_TARGETS,
-    DEFAULT_EFFECT_DURATION_ROUNDS,
-    DEFAULT_EFFECT_REVERT,
-    DEFAULT_EFFECT_STACKING,
-    DEFAULT_EFFECT_TARGET,
-    isEffectRevertMode,
-    isEffectStacking,
-    isEffectTarget,
-} from '../../../shared/EffectVocabulary.js';
-import { validateEffectOperation } from './EffectOperationSpecs.js';
-import {
-    MAX_EFFECT_DEFINITIONS,
-    MAX_EFFECT_DURATION_ROUNDS,
-    MAX_EFFECT_OPERATIONS,
-    MAX_EFFECT_STACKS,
-} from '../../utils/Constants.js';
-
-/** Cap on a display name, so a mod cannot ship a paragraph as a label (`CR SEC-2`). */
-const MAX_EFFECT_NAME_CHARS = 80;
-/** Cap on the prose fragment ("is burning"), which reaches the round prose. */
-const MAX_EFFECT_PHRASE_CHARS = 80;
+// The SHAPE law (target, duration, stacking, revert, operations, label caps) is
+// `EffectDefinitionRules` - shared with the design pipeline's effects stage. Only the
+// cap on HOW MANY definitions this file may hold stays here, because that limit is about
+// reading a registry, not about what one effect is.
+import { validateEffectDefinitionEntry } from './EffectDefinitionRules.js';
+import { MAX_EFFECT_DEFINITIONS } from '../../utils/Constants.js';
 
 /**
  * The top-level keys of the file that are NOT effect definitions. `version` is the
@@ -282,116 +264,11 @@ class EffectsController {
      * @private
      */
     _validateEntry(id, raw, errors) {
-        if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
-            errors.push('an effect must be an object');
-            return null;
-        }
-
-        const target = raw.target === undefined ? DEFAULT_EFFECT_TARGET : raw.target;
-        if (!isEffectTarget(target)) {
-            errors.push(`target "${String(target)}" is not one of ${Object.values(EFFECT_TARGETS).join(', ')}`);
-        }
-
-        const durationRounds = raw.durationRounds === undefined
-            ? DEFAULT_EFFECT_DURATION_ROUNDS
-            : raw.durationRounds;
-        if (typeof durationRounds !== 'number' || !Number.isInteger(durationRounds)
-            || durationRounds < 0 || durationRounds > MAX_EFFECT_DURATION_ROUNDS) {
-            errors.push(`durationRounds must be an integer between 0 and ${MAX_EFFECT_DURATION_ROUNDS} (0 means "until removed")`);
-        }
-
-        const stacking = raw.stacking === undefined ? DEFAULT_EFFECT_STACKING : raw.stacking;
-        if (!isEffectStacking(stacking)) {
-            errors.push(`stacking "${String(stacking)}" is not one of ${Object.values(EFFECT_STACKING).join(', ')}`);
-        }
-
-        let maxStacks = null;
-        if (stacking === EFFECT_STACKING.CAPPED) {
-            maxStacks = raw.maxStacks;
-            if (typeof maxStacks !== 'number' || !Number.isInteger(maxStacks)
-                || maxStacks < 1 || maxStacks > MAX_EFFECT_STACKS) {
-                errors.push(`stacking "capped" needs an integer maxStacks between 1 and ${MAX_EFFECT_STACKS}`);
-            }
-        } else if (raw.maxStacks !== undefined) {
-            errors.push(`maxStacks is only meaningful when stacking is "capped"`);
-        }
-
-        const revert = raw.revert === undefined ? DEFAULT_EFFECT_REVERT : raw.revert;
-        if (!isEffectRevertMode(revert)) {
-            errors.push(`revert "${String(revert)}" is not one of ${Object.values(EFFECT_REVERT).join(', ')}`);
-        }
-
-        const operations = this._validateOperationList(raw.operations, 'operations', errors);
-        const perRound = this._validateOperationList(raw.perRound, 'perRound', errors);
-        if (operations.length + perRound.length > MAX_EFFECT_OPERATIONS) {
-            errors.push(`an effect declares ${operations.length + perRound.length} operations, over the cap of ${MAX_EFFECT_OPERATIONS}`);
-        }
-
-        const name = this._validateLabel(raw.name, 'name', id, MAX_EFFECT_NAME_CHARS, errors);
-        const prose = raw.phrase === undefined && raw.prose === undefined ? null : raw.prose;
-        if (prose !== null && (!prose || typeof prose !== 'object' || Array.isArray(prose))) {
-            errors.push('prose must be an object with an optional "phrase"');
-        }
-        const phrase = (prose && typeof prose === 'object' && prose.phrase !== undefined)
-            ? this._validateLabel(prose.phrase, 'prose.phrase', id, MAX_EFFECT_PHRASE_CHARS, errors)
-            : null;
-
-        if (errors.length > 0) return null;
-
-        return Object.freeze({
-            id,
-            name,
-            phrase,
-            target,
-            durationRounds,
-            stacking,
-            maxStacks,
-            revert,
-            operations: Object.freeze(operations.map(freezeOperation)),
-            perRound: Object.freeze(perRound.map(freezeOperation)),
-        });
-    }
-
-    /**
-     * Validate one of the two operation lists. An absent list is empty (an effect
-     * that applies nothing and ticks something is legitimate, and vice versa).
-     * @private
-     */
-    _validateOperationList(rawList, label, errors) {
-        if (rawList === undefined || rawList === null) return [];
-        if (!Array.isArray(rawList)) {
-            errors.push(`${label} must be an array of operations`);
-            return [];
-        }
-        const operations = [];
-        for (let i = 0; i < rawList.length; i++) {
-            const entry = rawList[i];
-            const entryErrors = validateEffectOperation(entry, `${label}[${i}]`);
-            if (entryErrors.length > 0) {
-                errors.push(...entryErrors);
-                continue;
-            }
-            operations.push({ op: entry.op, params: { ...(entry.params ?? {}) } });
-        }
-        return operations;
-    }
-
-    /**
-     * A display label: optional, non-empty, bounded. Absent folds to the effect id,
-     * which is always available and never lies about being a name.
-     * @private
-     */
-    _validateLabel(rawLabel, field, id, maxChars, errors) {
-        if (rawLabel === undefined || rawLabel === null) return id;
-        if (typeof rawLabel !== 'string' || rawLabel.trim() === '') {
-            errors.push(`${field} must be a non-empty string`);
-            return id;
-        }
-        if (rawLabel.length > maxChars) {
-            errors.push(`${field} is longer than ${maxChars} characters`);
-            return id;
-        }
-        return rawLabel;
+        // The law itself lives in `EffectDefinitionRules`, because the LAST stage of the
+        // agent-body design authors entries of this same registry kind and must be held to
+        // the same text. A copy of the shape in the design pipeline is a design that
+        // drifts from what boot accepts (`CR T-1`).
+        return validateEffectDefinitionEntry(id, raw, errors);
     }
 
     /** @private */
@@ -400,16 +277,6 @@ class EffectsController {
         Logger.info(`[EffectsController] Initialized with ${count} effect definition(s)` +
             (count > 0 ? `: ${Object.keys(definitions).join(', ')}` : ''));
     }
-}
-
-/**
- * Freeze one normalised operation deeply. `params` values are scalars by the spec's
- * own law, so a one-level freeze plus the spread in `_validateOperationList` covers it.
- * @param {{op: string, params: Object}} operation
- * @returns {Object}
- */
-function freezeOperation(operation) {
-    return Object.freeze({ op: operation.op, params: Object.freeze({ ...operation.params }) });
 }
 
 export default EffectsController;
