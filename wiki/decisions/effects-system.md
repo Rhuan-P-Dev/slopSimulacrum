@@ -60,9 +60,13 @@ one that must first make a public mount path.
   disables THAT entry with a warning, and an unknown operation id is a data fault, not a
   crash vector.
 - **`EffectEngine`** is the live instance owner: which effects are running, on what, with
-  what remaining rounds and what contributions to revert. It replaced the `EffectTracker`,
-  which survives as a thin adapter over it so the persisted condition shape and every
-  existing caller keep working.
+  what remaining rounds and what contributions to revert. It replaced the `EffectTracker`
+  outright — the tracker was **deleted** at the cutover, not left as an adapter: the
+  engine carries the same method contract (`resolveComponents`, `beforeApply`,
+  `afterApply`, `setCurrentRound`, `expireEffects`) the callers already used, and every
+  caller (`ConsequenceDispatcher`, `TurnSystemController`, `WorldComposition`) was rewired
+  to `facade.effectEngine` in the same change. One owner of live effect state, one path to
+  it, no shim to keep two readings honest.
 
 The line between a typo and a bug is preserved from the world-rules layer: a definition
 naming an operation the server does not know is a **data fault** (disabled, warned, id
@@ -114,6 +118,20 @@ through `facade.applyEffect` / `removeEffects` / `listActiveEffects`:
   running on it with the rounds remaining, and whole-body effects separately. A model that
   cannot see its own effects cannot plan around them, and one round left is not worth the
   same plan as ten.
+
+**The entity verbs read the whole body.** `list_effects { entityId }` and
+`remove_effect { entityId }` cover instances applied to the entity itself *and* everything
+running on the parts it carries — matched on the owning entity recorded on each instance at
+apply time (a component never changes owner). The widening is an explicit opt-in
+(`{ includeComponentInstances: true }`); the engine's default stays exact, because the NPC
+context renders each instance exactly once — a part effect under its part, a body effect
+under the body — and widening the default would print them twice. The verbs widen because
+the gap was the shape of a trap: `apply_effect { componentId }` landed on a part, and the
+body's own read-back answered "nothing is running" while its removal reported zero — the
+only remaining lever was the global `remove_effect { effectId }`, a worldwide sweep for one
+burning arm. Pinned at the engine (`test/unit/EffectEngine.test.js`), at the verbs
+(`test/unit/WorldOperatorEffects.test.js`) and through the composed facade
+(`test/contract/effectsLive.contract.test.js`).
 
 **An effect is two calls, in this order, and the System prompt says so.** It is a TYPE (a
 row in the `effects` registry) and an APPLICATION (a live instance on one entity), and
