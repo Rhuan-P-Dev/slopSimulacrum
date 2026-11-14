@@ -312,6 +312,13 @@ describe('WorldStateController public method surface', () => {
         'getInternalComponents',
         'getInternalComponentsForEntity',
         'getItem',
+        // Added deliberately (consumable items, wiki/decisions/consumable-items.md §9):
+        // the facade accessor for ONE item type definition, so a consequence reads its
+        // item through the facade instead of reaching `worldStateController.inventoryManager`
+        // itself - there an optional chain turns a missing collaborator into a plausible
+        // lie about the world ("Apple is not something you can eat") rather than a loud
+        // error. Same delegation as getItemRegistry.
+        'getItemDefinition',
         'getItemRegistry',
         'getItemStats',
  // Added deliberately (wiki/subMDs/frontend/knowledge_viewer.md): the static knowledge
@@ -819,6 +826,7 @@ describe('WorldStateController.getActionsForEntity() shape', () => {
             'dash',
             'droid punch',
             'dropItem',
+            'eat',
             'grab',
             'hand shotgun',
             'move',

@@ -1,5 +1,5 @@
 {
-  "_comment": "Inventory item recipes. An item is a SMALL COMPONENT: its own matter (composition), its own form (footprint/volume), and its own pre-installed organs — it is never merged into the host on equip, so using a knife degrades the knife, not the hand. Its stats derive from its own recipe exactly as a component's do: existence, the six channel resistances, mass, and (for the knife) a depletable sharpness from the edge material. A knife carries no organ because sharpness is a matter-derived edge quality, not a function stat. An item may also declare a `visual` block of its own - the same closed vocabulary a material uses (`VISUAL_KEYS` in src/utils/materialLook.js) - because what a garment looks like is not what the matter it is modelled from looks like: the t-shirt is red, the wood is brown. Absent means the item says nothing about its appearance; a key outside the vocabulary fails boot (and quarantines the definition when a mod carries it).",
+  "_comment": "Inventory item recipes. An item is a SMALL COMPONENT: its own matter (composition), its own form (footprint/volume), and its own pre-installed organs — it is never merged into the host on equip, so using a knife degrades the knife, not the hand. Its stats derive from its own recipe exactly as a component's do: existence, the six channel resistances, mass, and (for the knife) a depletable sharpness from the edge material. A knife carries no organ because sharpness is a matter-derived edge quality, not a function stat. An item may also declare a `visual` block of its own - the same closed vocabulary a material uses (`VISUAL_KEYS` in src/utils/materialLook.js) - because what a garment looks like is not what the matter it is modelled from looks like: the t-shirt is red, the wood is brown. Absent means the item says nothing about its appearance; a key outside the vocabulary fails boot (and quarantines the definition when a mod carries it). An item may also declare a `consume` block - `{ targetStat: 'Group.stat', energyGain: <positive number> }` - which makes it a CONSUMABLE: the `eat` action spends the item and charges that whole-entity attribute by `energyGain`, clamped at the attribute's own `max` in data/mods/core-entity-attributes/entityAttributes.json (the same charge law as the coal burner's consumeFuelGenerateStat). `targetStat` is limited to a whole-entity resource (Physical.energy, Pleasure.pleasure); a block naming anything else, or carrying no positive amount, quarantines the definition (`src/services/ConsumableRules.js`, wiki/decisions/consumable-items.md).",
   "powerCell": {
     "name": "Power Cell",
     "description": "Compact power source for droid systems.",
@@ -202,5 +202,48 @@
       }
     ],
     "internalComponents": []
+  },
+  "apple": {
+    "name": "Apple",
+    "description": "A cold, sweet fruit. Eat it (the `eat` action) to spend the item and charge your Physical.energy by 15.",
+    "form": {
+      "volume": 1
+    },
+    "materials": [
+      {
+        "material": "fruitFlesh",
+        "fraction": 1
+      }
+    ],
+    "internalComponents": [],
+    "consume": {
+      "targetStat": "Physical.energy",
+      "energyGain": 15
+    }
+  },
+  "goldenApple": {
+    "name": "Golden apple",
+    "description": "An apple whose skin shines like polished gold. Eat it (the `eat` action) to spend the item and charge your Physical.energy by 60.",
+    "form": {
+      "volume": 1
+    },
+    "materials": [
+      {
+        "material": "fruitFlesh",
+        "fraction": 1
+      }
+    ],
+    "internalComponents": [],
+    "visual": {
+      "hue": 48,
+      "saturation": 88,
+      "lightness": 55,
+      "metalness": 85,
+      "roughness": 18
+    },
+    "consume": {
+      "targetStat": "Physical.energy",
+      "energyGain": 60
+    }
   }
 }

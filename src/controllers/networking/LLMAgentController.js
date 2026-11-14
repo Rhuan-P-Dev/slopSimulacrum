@@ -991,7 +991,7 @@ class LLMAgentController {
                         componentId: { type: 'string', description: 'comp-… your own source component (e.g. the arm/hand using the tool).' },
                         targetEntityId: { type: 'string', description: 'ent-… entity being affected (range-checked).' },
                         itemId: { type: 'string', description: 'item-… item to drop (dropItem / pickUpItem).' },
-                        itemType: { type: 'string', description: 'Machine item type to place (e.g. "knifeGenerator"); used by placeMachine when you name the machine by type rather than instance id.' },
+                        itemType: { type: 'string', description: 'Item TYPE (not an instance id), used by placeMachine (e.g. "knifeGenerator") and by eat (e.g. "apple"). Your Inventory line shows types and counts, so eat names the food by type; the first carried item of that type is spent.' },
                         machineType: { type: 'string', description: 'Machine type to retrieve (e.g. "knifeGenerator"); used by retrieveMachine to pick up your own placed machine.' },
                         targetX: { type: 'number', description: 'Target x in room coordinates (move/dash/drop).' },
                         targetY: { type: 'number', description: 'Target y in room coordinates (move/dash/drop).' },

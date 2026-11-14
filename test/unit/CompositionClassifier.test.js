@@ -292,3 +292,83 @@ describe('the map and its props (rooms, worldObjects)', () => {
         expect(result.quarantined).toEqual([]);
     });
 });
+
+// ---- A consumable's `consume` block -------------------------------------------
+// What makes an item edible is one small block, and the classifier is the only place
+// that decides whether a mod's food ships. The rule text lives in
+// src/services/ConsumableRules.js — the same reader the eat consequence uses — so a
+// plan cannot promise a bite the running world would refuse. What is pinned here is
+// the treatment: bad food is dropped by name, good food survives, and the rest of the
+// candidate is untouched.
+describe('an inventory item that declares a consume block', () => {
+    /** An item carrying `consume` exactly as the data files write it. */
+    const food = (consume) => ({
+        apple: {
+            name: 'Apple',
+            form: { volume: 1 },
+            materials: [{ material: 'wood', fraction: 1 }],
+            ...(consume === undefined ? {} : { consume })
+        }
+    });
+
+    it('keeps food whose block names a whole-entity resource and an amount', () => {
+        const result = classifyComposition(candidate({
+            [REGISTRY_KINDS.INVENTORY_ITEMS]: {
+                ...nailItem,
+                ...food({ targetStat: 'Physical.energy', energyGain: 15 })
+            }
+        }));
+        expect(result.quarantined).toEqual([]);
+        expect(result.valid[REGISTRY_KINDS.INVENTORY_ITEMS].apple.consume)
+            .toEqual({ targetStat: 'Physical.energy', energyGain: 15 });
+    });
+
+    it('keeps an item that declares no block at all (most items are not food)', () => {
+        const result = classifyComposition(candidate({
+            [REGISTRY_KINDS.INVENTORY_ITEMS]: { ...nailItem, ...food(undefined) }
+        }));
+        expect(result.quarantined).toEqual([]);
+        expect(result.valid[REGISTRY_KINDS.INVENTORY_ITEMS].apple).toBeDefined();
+    });
+
+    it('quarantines food that charges a stat outside the closed vocabulary', () => {
+        // The dangerous case, because it boots cleanly: `Physical.strength` is a real
+        // stat, and a bite that buffs strength (or heals, or spends `existence`) is a
+        // rewrite of what food does. Dropped by name, like a bad `visual` block.
+        const result = classifyComposition(candidate({
+            [REGISTRY_KINDS.INVENTORY_ITEMS]: { ...nailItem, ...food({ targetStat: 'Physical.strength', energyGain: 5 }) }
+        }));
+        expect(result.quarantined).toHaveLength(1);
+        expect(result.quarantined[0]).toMatchObject({
+            kind: REGISTRY_KINDS.INVENTORY_ITEMS,
+            key: 'apple',
+            scope: QUARANTINE_SCOPE.DEFINITION
+        });
+        expect(result.quarantined[0].reason).toContain('whole-entity resource');
+        expect(result.valid[REGISTRY_KINDS.INVENTORY_ITEMS].apple, 'the bad definition is dropped').toBeUndefined();
+        expect(result.valid[REGISTRY_KINDS.INVENTORY_ITEMS].nail, 'the rest of the registry survives').toBeDefined();
+    });
+
+    it('quarantines food with no amount to charge', () => {
+        // A block that declares nothing would ship as a dead Eat button: the item is
+        // spent, the meter does not move. An author wrote food and got a trap.
+        for (const energyGain of [undefined, 0, -20, '15']) {
+            const result = classifyComposition(candidate({
+                [REGISTRY_KINDS.INVENTORY_ITEMS]: { ...nailItem, ...food({ targetStat: 'Physical.energy', energyGain }) }
+            }));
+            expect(result.quarantined.map((q) => q.key), `energyGain=${JSON.stringify(energyGain)}`).toEqual(['apple']);
+        }
+    });
+
+    it('quarantines a block that is not a block', () => {
+        // `consume: true` reads like a flag an author meant to fill in later; it is
+        // still a definition that cannot charge anything.
+        for (const consume of [true, 'Physical.energy', [], 'yes']) {
+            const result = classifyComposition(candidate({
+                [REGISTRY_KINDS.INVENTORY_ITEMS]: { ...nailItem, ...food(consume) }
+            }));
+            expect(result.quarantined.map((q) => q.key), `consume=${JSON.stringify(consume)}`).toEqual(['apple']);
+            expect(result.quarantined[0].reason).toContain('must be an object');
+        }
+    });
+});

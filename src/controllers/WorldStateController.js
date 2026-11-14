@@ -1745,6 +1745,20 @@ class WorldStateController {
     }
 
     /**
+     * Gets the definition of ONE item type.
+     * The facade method for "what is this item type". Consequences must not reach
+     * through `worldStateController.inventoryManager` for this: an optional chain on
+     * that reach makes a missing or late-injected collaborator answer `null`, which a
+     * caller then reports as a fact about the world ("Apple is not something you can
+     * eat") instead of a loud error. Same delegation as `getItemRegistry()`.
+     * @param {string} itemType - Registry key of the item type.
+     * @returns {Object|null} The definition, or null when the type is unknown.
+     */
+    getItemDefinition(itemType) {
+        return this.inventoryManager.getItemDefinition(itemType) ?? null;
+    }
+
+    /**
      * Gets inventory items for an entity grouped by host component.
      * Returns a defensive deep copy.
      * @param {string} entityId - The entity ID.
