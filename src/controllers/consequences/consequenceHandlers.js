@@ -157,10 +157,11 @@ class ConsequenceHandlers {
             // The touch action: raise the touched droid's Pleasure.pleasure by the
             // sensitivity of the touched body-part component (validated sensitive flag).
             stimulateSensitivePart: (targetId, params, context) => this.sensitivePartHandler._handleStimulateSensitivePart(targetId, params, context),
-            // Inflict an effect from the `effects` registry (burning, corroding, a
-            // designed body's inborn effect). The engine applies it; this line is only
-            // the bridge, so an inflicted effect and an operator-applied one are the
-            // same instance with the same expiry and the same revert.
+            // Inflict an effect: `effectId` names a row of the `effects` registry
+            // (burning, corroding, a designed body's inborn effect), `effect` carries one
+            // authored for this verb alone and applied transiently. The engine applies
+            // both; this line is only the bridge, so an inflicted effect and an
+            // operator-applied one are the same instance with the same expiry and revert.
             applyEffect: (targetId, params, context) => handleApplyEffect(targetId, params, context, this.worldStateController),
         };
     }

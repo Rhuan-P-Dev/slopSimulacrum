@@ -21,6 +21,16 @@
  * adds bookkeeping, not behaviour, which is what keeps a mod data-only and keeps
  * damage looking like damage wherever it comes from.
  *
+ * A DEFINITION ARRIVES TWO WAYS, AND ONLY ONE OF THEM OUTLIVES THE CALL. `apply(id)`
+ * reads the row `EffectsController` validated; `applyDefinition(definition)` takes one
+ * authored where it is used - an action consequence carrying an `effect` instead of
+ * naming an `effectId` - validated by the SAME law at that edge
+ * (`src/controllers/consequences/ApplyEffectHandler.js`). A transient instance carries
+ * its own definition, which is what keeps its `perRound` ticking; a registry instance
+ * deliberately carries nothing and keeps reading its live row, so a mod swap still
+ * changes what a live effect does. `applyDefinition` writes no registry: a verb hitting
+ * something must not define a global type as a side effect.
+ *
  * REVERT IS BY CONTRIBUTION, NEVER BY ABSOLUTE VALUE. A recorded effect undoes its
  * OWN delta, so two live effects on one stat commute and an expiry cannot clobber a
  * neighbour — the exact bug `test/contract/durableEffects.contract.test.js` pins —
@@ -139,6 +149,62 @@ class EffectEngine {
     apply(effectId, target, { rounds, source = 'unknown' } = {}) {
         const definition = this.effectsController?.getDefinition(effectId) ?? null;
         if (!definition) return refuse(EFFECT_ERROR.UNKNOWN, `no effect named "${effectId}" is defined`);
+        return this._applyResolved(definition, target, { rounds, source });
+    }
+
+    /**
+     * Apply an effect definition that has NO row in the `effects` registry: the
+     * definition travels with the application and lives exactly as long as its
+     * instances, and nothing is written to any registry.
+     *
+     * WHO CALLS THIS. The `applyEffect` consequence when the data carries an authored
+     * `effect` instead of naming an `effectId`
+     * (`src/controllers/consequences/ApplyEffectHandler.js`). That caller runs the same
+     * shape law `EffectsController` runs on a registry entry, and hands over the frozen
+     * result - this engine still does no shape checking (`CR T-2`); it only refuses a
+     * value that is not a definition at all, because a public entry point may be handed
+     * anything.
+     *
+     * WHY NOT "register it, then apply by id". A verb that resolves would then write a
+     * global type as a side effect of hitting something: every application would need an
+     * id nobody collides with, a later mod swap could supersede the row (`EffectsController`
+     * drops an overlay entry when a package ships the same id), and the operator's
+     * `list_effect_definitions` would fill with rows no author ever wrote. Carrying the
+     * definition on the instance instead gives a transient effect no owner at all, and
+     * keeps `EffectsController` the one owner of everything that outlives one application.
+     *
+     * @param {Object} definition - a frozen definition from `EffectDefinitionRules`
+     * @param {{ kind: 'entity'|'component', id: string }} target
+     * @param {Object} [options]
+     * @param {number} [options.rounds] - overrides the definition duration
+     * @param {string} [options.source] - who asked, for the log line only
+     * @returns {{ ok: boolean, instanceIds?: string[], error?: string, code?: string }}
+     */
+    applyDefinition(definition, target, { rounds, source = 'inline' } = {}) {
+        if (!definition || typeof definition !== 'object'
+            || typeof definition.id !== 'string' || definition.id === ''
+            || !Array.isArray(definition.operations) || !Array.isArray(definition.perRound)) {
+            return refuse(EFFECT_ERROR.BAD_PARAMS,
+                'a definition applied directly needs an id and both operation lists');
+        }
+        return this._applyResolved(definition, target, { rounds, source, ownDefinition: definition });
+    }
+
+    /**
+     * The one application path behind `apply` (a registry definition, looked up by id)
+     * and `applyDefinition` (one that arrived with the call).
+     *
+     * `ownDefinition` is the definition THIS instance owns outright: set by
+     * `applyDefinition`, null for a registry application. It is what lets a transient
+     * effect keep ticking its `perRound` after the change, while a registry instance goes
+     * on reading its live row (`onRoundStart`).
+     * @param {Object} definition
+     * @param {{ kind: string, id: string }} target
+     * @param {{ rounds?: number, source: string, ownDefinition?: Object|null }} options
+     * @returns {{ ok: boolean, instanceIds?: string[], error?: string, code?: string }}
+     * @private
+     */
+    _applyResolved(definition, target, { rounds, source, ownDefinition = null } = {}) {
         if (!target || typeof target.id !== 'string' || target.id === '') {
             return refuse(EFFECT_ERROR.TARGET_MISSING, 'an effect needs a target');
         }
@@ -159,12 +225,14 @@ class EffectEngine {
             // Nothing in the definition could land on this target (no part carries the
             // field, for instance). Not an error the caller can act on beyond knowing it.
             return refuse(EFFECT_ERROR.TARGET_MISSING,
-                `the effect "${effectId}" has nothing to act on at "${target.id}"`);
+                `the effect "${definition.id}" has nothing to act on at "${target.id}"`);
         }
+        // Only a transient instance records what it owns; see `_applyResolved`.
+        if (ownDefinition) instance.definition = ownDefinition;
 
         if (stackingDecision.replacedTargetId) this._instances.delete(stackingDecision.replacedTargetId);
         this._instances.set(instance.instanceId, instance);
-        Logger.info(`[EffectEngine] ${effectId} applied to ${target.kind} ${target.id} `
+        Logger.info(`[EffectEngine] ${definition.id} applied to ${target.kind} ${target.id} `
             + `(instance ${instance.instanceId}, round ${this._currentRound ?? 'none'}`
             + `${instance.expiresRound === null ? ', no expiry' : `, expires round ${instance.expiresRound}`}) `
             + `by ${source}`);
@@ -220,7 +288,12 @@ class EffectEngine {
             .filter((instance) => instance.appliedRound === null || instance.appliedRound < round)
             .filter((instance) => instance.expiresRound === null || instance.expiresRound >= round);
         for (const instance of ticking) {
-            const definition = this.effectsController?.getDefinition(instance.effectId);
+            // An instance of a TRANSIENT definition (applied by `applyDefinition`, from a
+            // definition that never entered the registry) carries the definition it was
+            // born with; a registry instance deliberately does not, so it keeps reading
+            // its live row and a mod swap changes what a live effect ticks.
+            const definition = instance.definition
+                ?? this.effectsController?.getDefinition(instance.effectId);
             if (!definition || definition.perRound.length === 0) continue;
             const ctx = this._contextFor(
                 { kind: instance.targetKind, id: instance.targetId }, definition);

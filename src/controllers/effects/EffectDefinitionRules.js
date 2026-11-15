@@ -1,10 +1,12 @@
 /**
  * EffectDefinitionRules — the shape law of ONE effect definition, as pure functions.
  *
- * WHY THIS IS NOT INSIDE `EffectsController`. The same shape is authored from two
- * places: an `effects` package on disk, and the last stage of the agent-body design
+ * WHY THIS IS NOT INSIDE `EffectsController`. The same shape is authored from three
+ * places: an `effects` package on disk, the last stage of the agent-body design
  * pipeline, which writes a body's inborn effects into the same registry kind
- * (`wiki/decisions/agent-body-design.md`). A design validated by a copy of the law is
+ * (`wiki/decisions/agent-body-design.md`), and an action consequence that carries an
+ * effect instead of naming one (`validateInlineEffectDefinition`, for
+ * `src/controllers/consequences/ApplyEffectHandler.js`). A design validated by a copy of the law is
  * a design that drifts from the law - the stage accepts what boot then refuses, and the
  * author learns about it at the next swap. So the law lives here, has one implementation,
  * and both readers call it (`CR T-1`, `CR T-2`).
@@ -41,6 +43,7 @@ import {
     isEffectRevertMode,
 } from '../../../shared/EffectVocabulary.js';
 import { validateEffectOperation } from './EffectOperationSpecs.js';
+import { PLACEHOLDER_ARITHMETIC, PLACEHOLDER_TOKEN } from '../../utils/PlaceholderResolver.js';
 import {
     MAX_EFFECT_DURATION_ROUNDS,
     MAX_EFFECT_OPERATIONS,
@@ -55,6 +58,29 @@ import {
 export const MAX_EFFECT_NAME_CHARS = 80;
 /** Cap on the prose fragment ("is burning"), which reaches the round prose. */
 export const MAX_EFFECT_PHRASE_CHARS = 80;
+
+/**
+ * A string that is STILL a placeholder expression - the shape
+ * `src/utils/PlaceholderResolver.js` substitutes for (`:Trait.stat`, `:variable`, with
+ * the same optional sign and arithmetic suffix).
+ *
+ * BUILT FROM THE GRAMMAR, NOT RE-TYPED. The head and the suffix come from the resolver
+ * itself (`PLACEHOLDER_TOKEN`, `PLACEHOLDER_ARITHMETIC`). A hand-copied version of this
+ * pattern kept matching the old `*N`-only language after the grammar grew `/N` and
+ * decimal multipliers, so `:NoSuch.stat/2` — a token the resolver leaves as text — walked
+ * past the guard and into an operation, where a string is a NAME: the effect applied
+ * cleanly and did nothing. A guard that re-types a grammar goes blind; this one borrows.
+ *
+ * WHY THE INLINE PATH CHECKS IT. A consequence payload passes through
+ * `ConsequenceDispatcher._resolveParams` before any handler sees it, so a placeholder
+ * inside an effect an action carries is substituted there, against the ACTING entity -
+ * and this layer never resolves one itself, because an effect parameter is literal
+ * (`EffectOperationSpecs` header: the same string means a different thing per caller).
+ * A token that arrives UNRESOLVED is therefore a name the world does not carry, and
+ * writing it would add a condition literally called `:Physical.strength`. Refuse it by
+ * name instead.
+ */
+const UNRESOLVED_PLACEHOLDER_REGEX = new RegExp(`^-?${PLACEHOLDER_TOKEN}(?:${PLACEHOLDER_ARITHMETIC})?$`);
 
 /**
  * Validate one entry of the `effects` registry.
@@ -143,6 +169,49 @@ export function validateEffectDefinitionEntry(id, raw, errors) {
         operations: Object.freeze(operations.map(freezeOperation)),
         perRound: Object.freeze(perRound.map(freezeOperation)),
     });
+}
+
+/**
+ * The law for an effect definition authored AT A USE SITE - the `applyEffect`
+ * consequence carrying `effect` instead of naming a registry `effectId`
+ * (`src/controllers/consequences/ApplyEffectHandler.js`).
+ *
+ * WHY IT LIVES HERE AND NOT IN THE HANDLER. One shape, one law (`CR T-2`). The registry
+ * reader, the agent-body design stage and now a consequence payload all describe the
+ * same object; a second copy of the law is exactly the drift this module exists to
+ * prevent. Only what the inline path CAN honour is decided here, on top of the shared
+ * law - and it is stated as a refusal, never as a silently ignored field.
+ *
+ * WHAT THE INLINE PATH REFUSES BEYOND THE REGISTRY LAW:
+ *  - `appliesTo`: its one reader is `InbornEffects`, which scans the `effects` registry
+ *    at spawn. A definition that never enters the registry is never scanned, so the
+ *    claim would sit there inert while the author believes a body was born with what is
+ *    really a hit-only effect.
+ *  - an operation parameter left as a placeholder (see `UNRESOLVED_PLACEHOLDER_REGEX`).
+ *
+ * @param {string} id - the id this definition runs under; synthetic, since a carried
+ *   effect has no registry key of its own (`inline:<action name>`)
+ * @param {unknown} raw - the authored value
+ * @param {string[]} errors - accumulated; the caller reports them
+ * @returns {Object|null} the frozen definition, or null when `errors` is non-empty
+ */
+export function validateInlineEffectDefinition(id, raw, errors) {
+    if (raw && typeof raw === 'object' && !Array.isArray(raw) && raw.appliesTo !== undefined) {
+        errors.push('an inline effect cannot declare appliesTo - only a registry entry is scanned '
+            + 'at spawn, so the claim would do nothing here (ship it in an "effects" package instead)');
+        return null;
+    }
+    const definition = validateEffectDefinitionEntry(id, raw, errors);
+    if (!definition || errors.length > 0) return null;
+    for (const operation of [...definition.operations, ...definition.perRound]) {
+        for (const [key, value] of Object.entries(operation.params)) {
+            if (typeof value === 'string' && UNRESOLVED_PLACEHOLDER_REGEX.test(value)) {
+                errors.push(`${operation.op}.${key} is the placeholder "${value}" - an effect names `
+                    + 'literal values, never :Trait.stat');
+            }
+        }
+    }
+    return errors.length > 0 ? null : definition;
 }
 
 /**

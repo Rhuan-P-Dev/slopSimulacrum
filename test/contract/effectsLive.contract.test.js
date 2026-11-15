@@ -184,6 +184,199 @@ describe('an action inflicting an effect (the applyEffect consequence)', () => {
         expect(result.success).toBe(false);
         expect(result.message).toContain('noSuchEffect');
     });
+
+    // The verb carries the effect instead of naming one. The claim worth a contract test
+    // is the one a unit suite over a hand-built facade cannot make: the definition is
+    // applied by the REAL engine, ages and reverts like a registered effect, and leaves
+    // the `effects` registry exactly as it found it - a verb hitting something is not a
+    // mod author writing a global type.
+    it('carries an effect authored for the verb, and writes no registry row to do it', () => {
+        const { world, entityId } = buildLiveWorld();
+        const componentId = moveBearingComponent(world, entityId);
+        const before = world.getComponentStats(componentId).Movement.move;
+        const shippedCount = world.listEffectDefinitions().length;
+
+        world.effectEngine.setCurrentRound(1);
+        const result = handlersFor(world).dispatch('applyEffect', componentId, {
+            effect: {
+                name: 'Frostbite',
+                target: 'component',
+                durationRounds: 2,
+                operations: [{ op: 'statDelta',
+                    params: { trait: 'Movement', stat: 'move', value: -3 } }],
+            },
+        }, { actorId: entityId, actionName: 'frost bolt' });
+
+        expect(result.success, result.message).toBe(true);
+        expect(world.getComponentStats(componentId).Movement.move).toBe(before - 3);
+        // A synthetic id naming the verb, because there is no registry key to name it by.
+        expect(world.listActiveEffects(componentId)[0].effectId).toBe('inline:frost bolt');
+        // And nothing was registered: the session's definitions are still the shipped set.
+        expect(world.listEffectDefinitions()).toHaveLength(shippedCount);
+        expect(world.getEffectDefinition('inline:frost bolt')).toBeNull();
+
+        // It ages like any other instance: expiry writes back its own contribution.
+        world.effectEngine.setCurrentRound(3);
+        world.effectEngine.expireEffects();
+        expect(world.getComponentStats(componentId).Movement.move).toBe(before);
+    });
+
+    it('refuses to carry an effect and name one in the same consequence', () => {
+        const { world, entityId } = buildLiveWorld();
+        const result = handlersFor(world).dispatch('applyEffect', entityId, {
+            effectId: 'burning',
+            effect: { name: 'Frostbite', operations: [{ op: 'grantFlag', params: { flag: 'wet' } }] },
+        }, { actorId: entityId, actionName: 'slash' });
+        expect(result.success).toBe(false);
+        expect(result.message).toContain('burning');
+        expect(world.effectEngine.getActiveEffects()).toEqual({});
+    });
+
+    it('refuses a carried effect that breaks the registry law, naming the rule', () => {
+        const { world, entityId } = buildLiveWorld();
+        const result = handlersFor(world).dispatch('applyEffect', entityId, {
+            effect: { name: 'Halfwritten', operations: [{ op: 'meltMatter' }] },
+        }, { actorId: entityId, actionName: 'slash' });
+        expect(result.success).toBe(false);
+        expect(result.message).toContain('meltMatter');
+        expect(world.effectEngine.getActiveEffects()).toEqual({});
+    });
+
+    it('refuses a carried effect whose parameter is still a placeholder', () => {
+        const { world, entityId } = buildLiveWorld();
+        const result = handlersFor(world).dispatch('applyEffect', entityId, {
+            effect: { name: 'Misnamed', target: 'component',
+                operations: [{ op: 'addCondition', params: { condition: ':Physical.strength' } }] },
+        }, { actorId: entityId, actionName: 'slash' });
+        expect(result.success).toBe(false);
+        expect(result.message).toContain(':Physical.strength');
+        // The garbage name never reaches the body: a condition is a name, not a template.
+        const entity = world.stateEntityController.getEntity(entityId);
+        for (const component of entity.components) {
+            expect(world.getComponentConditions(component.id)).not.toContain(':Physical.strength');
+        }
+    });
+
+    it('refuses a parameter still wearing any shape the grammar knows', () => {
+        // The guard is BUILT from the resolver's own fragments (`PLACEHOLDER_TOKEN`,
+        // `PLACEHOLDER_ARITHMETIC`), so it cannot lag the language. A hand-copied version of
+        // it did: it knew `*N` but not `/N` nor decimals, so an unresolved `:NoSuch.stat/2`
+        // walked past the guard into an operation, where a string is a NAME - the effect
+        // applied cleanly and did nothing. A stat name is the parameter with no whitelist
+        // behind it, so only the guard can refuse these.
+        const shapes = [
+            ':Physical.strength',
+            ':NoSuch.stat/2',
+            ':Physical.strength/0',
+            ':Physical.strength*0.5',
+            ':fuel'
+        ];
+        for (const shape of shapes) {
+            const { world, entityId } = buildLiveWorld();
+            const result = handlersFor(world).dispatch('applyEffect', entityId, {
+                effect: { name: 'Misnamed', target: 'component',
+                    operations: [{ op: 'statDelta', params: { trait: 'Physical', stat: shape, value: -1 } }] },
+            }, { actorId: entityId, actionName: 'slash' });
+            expect(result.success, `${shape} must not reach an operation as a name`).toBe(false);
+            expect(result.message, `${shape} must be named in the refusal`).toContain(shape);
+            expect(world.effectEngine.getActiveEffects(), `${shape} must not land`).toEqual({});
+        }
+    });
+
+    it('refuses a rounds override the engine cannot honour', () => {
+        // Absent rounds means the effect's own declared duration. Present-but-unusable is a
+        // typo in the action, and the engine's rule for a number it cannot use is "no
+        // override" - so an unchecked 1e9 is an instance that outlives its world and an
+        // unresolved "50/2" is a silent fallback. Refused by value, and nothing lands.
+        for (const rounds of ['3', '50/2', 2.5, -1, 1e9, Number.NaN]) {
+            const { world, entityId } = buildLiveWorld();
+            const result = handlersFor(world).dispatch('applyEffect', entityId, {
+                effect: { name: 'Cold', target: 'component', durationRounds: 2,
+                    operations: [{ op: 'addCondition', params: { condition: 'chilled' } }] },
+                rounds,
+            }, { actorId: entityId, actionName: 'slash' });
+            expect(result.success, `${rounds} must not silently change the duration`).toBe(false);
+            expect(result.message).toContain('rounds');
+            expect(world.effectEngine.getActiveEffects(), `${rounds} must not land an instance`).toEqual({});
+        }
+
+        // Positive control, so the loop above cannot pass by refusing everything: a usable
+        // override still means what it says.
+        const { world, entityId } = buildLiveWorld();
+        const ok = handlersFor(world).dispatch('applyEffect', entityId, {
+            effect: { name: 'Cold', target: 'component', durationRounds: 9,
+                operations: [{ op: 'addCondition', params: { condition: 'chilled' } }] },
+            rounds: 2,
+        }, { actorId: entityId, actionName: 'slash' });
+        expect(ok.success, JSON.stringify(ok)).toBe(true);
+    });
+
+    it('runs a carried effect through the whole verb path, from executeAction to the engine', () => {
+        // The claim only the composed world can make: the same consequence written in an
+        // actions.json is read by the REAL dispatcher - target resolution, and the
+        // placeholder pass that walks straight through the nested `effect` object - and
+        // lands in the REAL engine, without a row of the `effects` registry being touched.
+        const { world, entityId } = buildLiveWorld();
+        const componentId = moveBearingComponent(world, entityId);
+        const before = world.getComponentStats(componentId).Movement.move;
+        const shippedIds = world.listEffectDefinitions().map((entry) => entry.id);
+        // A verb written by the test rather than shipped: this is the shape a mod authors,
+        // and shipping one would change the balance of the world for no reason.
+        world.actionController.actionRegistry.testChill = {
+            description: 'Exhale cold air on a part: it works worse for two rounds.',
+            targetingType: 'component',
+            range: 50,
+            requirements: [],
+            consequences: [{
+                type: 'applyEffect',
+                target: 'target',
+                params: {
+                    effect: {
+                        name: 'Frostbite',
+                        target: 'component',
+                        durationRounds: 2,
+                        operations: [{ op: 'addCondition', params: { condition: 'frostbitten' } }],
+                        perRound: [{ op: 'statDelta',
+                            params: { trait: 'Movement', stat: 'move', value: -1 } }],
+                    },
+                },
+            }],
+        };
+        try {
+            world.effectEngine.setCurrentRound(1);
+            const result = world.executeAction('testChill', entityId, { targetComponentId: componentId });
+            expect(result.success, JSON.stringify(result)).toBe(true);
+
+            expect(world.getComponentConditions(componentId)).toContain('frostbitten');
+            const [instance] = world.listActiveEffects(componentId);
+            expect(instance.effectId).toBe('inline:testChill');
+            expect(instance.expiresRound).toBe(3);
+            // A verb hitting something never authors a global type on the way past.
+            expect(world.listEffectDefinitions().map((entry) => entry.id)).toEqual(shippedIds);
+
+            // The stream ticks from the definition the action carried, and expiry takes the
+            // mark back - the same lifecycle a registry effect has.
+            world.effectEngine.setCurrentRound(2);
+            world.effectEngine.onRoundStart(2);
+            expect(world.getComponentStats(componentId).Movement.move).toBe(before - 1);
+            world.effectEngine.setCurrentRound(3);
+            world.effectEngine.expireEffects();
+            expect(world.getComponentConditions(componentId)).not.toContain('frostbitten');
+        } finally {
+            delete world.actionController.actionRegistry.testChill;
+        }
+    });
+
+    it('refuses a carried effect claiming a body it cannot be born on', () => {
+        const { world, entityId } = buildLiveWorld();
+        const result = handlersFor(world).dispatch('applyEffect', entityId, {
+            effect: { name: 'InbornWannabe', appliesTo: 'smallBallDroid',
+                operations: [{ op: 'grantFlag', params: { flag: 'wet' } }] },
+        }, { actorId: entityId, actionName: 'slash' });
+        expect(result.success).toBe(false);
+        expect(result.message).toContain('appliesTo');
+        expect(world.effectEngine.getActiveEffects()).toEqual({});
+    });
 });
 
 describe('a runtime effect definition is session-only and never shadows a package', () => {

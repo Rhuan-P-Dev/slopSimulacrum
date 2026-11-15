@@ -15,7 +15,10 @@
  *   - a condition or flag the target already had survives the effect that merely
  *     matched its name;
  *   - the caps refuse with a code, they never drop an effect quietly (`CR A-7`);
- *   - a target that left the world loses its records and is not written to.
+ *   - a target that left the world loses its records and is not written to;
+ *   - a definition that ARRIVES WITH the call (an action carrying one, no registry row)
+ *     applies, ticks its own `perRound` and reverts like a registered one, and writes no
+ *     registry on the way.
  *
  * @module test/unit/EffectEngine
  */
@@ -23,6 +26,7 @@
 import { describe, it, expect } from 'vitest';
 import EffectEngine from '../../src/controllers/effects/EffectEngine.js';
 import EffectsController from '../../src/controllers/effects/EffectsController.js';
+import { validateInlineEffectDefinition } from '../../src/controllers/effects/EffectDefinitionRules.js';
 import { REGISTRY_KINDS } from '../../shared/RegistryKinds.js';
 import { MAX_ACTIVE_EFFECTS_PER_TARGET } from '../../src/utils/Constants.js';
 
@@ -454,5 +458,89 @@ describe('EffectEngine — the entity-scope view the operator verbs read', () =>
         expect(engine.remove({ targetId: 'e1', effectId: 'e' }, { includeComponentInstances: true })).toBe(1);
         // The other body's part keeps its instance: entity scope is scoped to the entity.
         expect(engine.listActive({ id: 'c2' })).toHaveLength(1);
+    });
+});
+
+describe('EffectEngine — a definition that arrives with the call', () => {
+    /**
+     * The way its one caller produces it: the registry's own shape law, then the
+     * transient entry point. Built through the law rather than by hand so a test of the
+     * engine never asserts on a shape the law would not produce (`CR TST-1`).
+     * @param {Object} raw
+     * @param {string} [id]
+     * @returns {Object|null} the frozen definition, or null with the rules it broke
+     */
+    function carried(raw, id = 'inline:slash') {
+        return validateInlineEffectDefinition(id, raw, []);
+    }
+
+    it('lands a definition that has no registry row, under the id it was given', () => {
+        const { engine, world } = buildEngine({}, { stats: { c1: { Movement: { move: 20 } } } });
+        engine.setCurrentRound(4);
+        const definition = carried({ target: 'entity', durationRounds: 2,
+            operations: [{ op: 'statDelta', params: { trait: 'Movement', stat: 'move', value: -7 } }] });
+
+        const applied = engine.applyDefinition(definition, { kind: 'entity', id: 'e1' });
+
+        expect(applied.ok, applied.error).toBe(true);
+        expect(world.valueOf('c1', 'Movement', 'move')).toBe(13);
+        expect(engine.listActive({ id: 'e1' })[0].effectId).toBe('inline:slash');
+    });
+
+    it('ticks the perRound stream of a definition nothing else knows', () => {
+        const { engine, world } = buildEngine({}, { stats: { c1: { Physical: { strength: 10 } } } });
+        // The shipped shape: an apply-time operation that marks the body, and the stream
+        // that does the work later. A definition with NOTHING at apply time never gets an
+        // instance at all (pinned in the refusals block above), inline ones included.
+        const definition = carried({ target: 'entity', durationRounds: 3,
+            operations: [{ op: 'grantFlag', params: { flag: 'soaking' } }],
+            perRound: [{ op: 'statDelta', params: { trait: 'Physical', stat: 'strength', value: -1 } }] });
+        engine.setCurrentRound(7);
+        expect(engine.applyDefinition(definition, { kind: 'entity', id: 'e1' }).ok).toBe(true);
+
+        engine.setCurrentRound(8);
+        engine.onRoundStart(8);
+        engine.setCurrentRound(9);
+        engine.onRoundStart(9);
+        // The stream comes from the definition the instance carries: nothing resolved it
+        // by id, and a registry lookup here would have found no row and stopped ticking.
+        expect(world.valueOf('c1', 'Physical', 'strength')).toBe(8);
+    });
+
+    it('reverts what a carried definition wrote when its instance expires', () => {
+        const { engine, world } = buildEngine({}, { stats: { c1: { Movement: { move: 20 } } } });
+        const definition = carried({ target: 'entity', durationRounds: 2,
+            operations: [{ op: 'statDelta', params: { trait: 'Movement', stat: 'move', value: -5 } }] });
+        engine.setCurrentRound(1);
+        engine.applyDefinition(definition, { kind: 'entity', id: 'e1' });
+        expect(world.valueOf('c1', 'Movement', 'move')).toBe(15);
+
+        engine.setCurrentRound(3);
+        engine.expireEffects();
+        expect(world.valueOf('c1', 'Movement', 'move')).toBe(20);
+        expect(engine.getActiveEffects()).toEqual({});
+    });
+
+    it('refuses a value that is not a definition, instead of applying half of one', () => {
+        const { engine, world } = buildEngine({}, { stats: { c1: { Movement: { move: 20 } } } });
+        engine.setCurrentRound(1);
+        const applied = engine.applyDefinition({ target: 'entity' }, { kind: 'entity', id: 'e1' });
+        expect(applied.ok).toBe(false);
+        expect(applied.code).toBe('EFFECT_PARAMS_INVALID');
+        expect(world.valueOf('c1', 'Movement', 'move')).toBe(20);
+    });
+
+    it('honours stacking between two applications of one carried definition', () => {
+        const { engine, world } = buildEngine({}, { stats: { c1: { Movement: { move: 20 } } } });
+        const definition = carried({ target: 'entity', durationRounds: 2, stacking: 'refresh',
+            operations: [{ op: 'statDelta', params: { trait: 'Movement', stat: 'move', value: -5 } }] });
+        engine.setCurrentRound(1);
+        engine.applyDefinition(definition, { kind: 'entity', id: 'e1' });
+        engine.setCurrentRound(2);
+        // Refresh, not stack: the second hit lifts the first contribution before re-applying
+        // it, so a repeated verb never deepens its own debuff.
+        engine.applyDefinition(definition, { kind: 'entity', id: 'e1' });
+        expect(world.valueOf('c1', 'Movement', 'move')).toBe(15);
+        expect(engine.listActive({ id: 'e1' })).toHaveLength(1);
     });
 });
