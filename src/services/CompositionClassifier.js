@@ -47,6 +47,7 @@ import CraftingController from '../controllers/crafting/CraftingController.js';
 import MachineRegistryController from '../controllers/core/MachineRegistryController.js';
 import { REGISTRY_KINDS } from '../../shared/RegistryKinds.js';
 import { narrowVisualBlock } from '../utils/materialLook.js';
+import { parseConsumeBlock } from './ConsumableRules.js';
 import { validateOutfitRegistry } from '../controllers/logic/OutfitLogic.js';
 import {
     roomDefinitionErrors,
@@ -176,6 +177,19 @@ export function classifyComposition(candidate = {}) {
             valid[REGISTRY_KINDS.INVENTORY_ITEMS] ?? {}
         ));
         if (reason) quarantine(REGISTRY_KINDS.OUTFITS, key, QUARANTINE_SCOPE.DEFINITION, reason);
+    }
+
+    // ---- 2d. A consumable's block against the closed vocabulary -------------
+    // An item that declares `consume` promises the eat action a meter to charge
+    // (`ConsumableRules`, `wiki/decisions/consumable-items.md`). A block naming a
+    // stat outside the vocabulary, or no amount at all, is data that would ship as
+    // a dead button — so the definition is dropped, the same treatment a bad `visual`
+    // block gets in 2b. The rule text lives in the rules module, not here: the eat
+    // consequence reads the same block through it, so plan and world cannot disagree.
+    for (const [key, def] of Object.entries(valid[REGISTRY_KINDS.INVENTORY_ITEMS] ?? {})) {
+        if (isMetadataKey(key) || !def || def.consume === undefined) continue;
+        const reason = failureOf(() => parseConsumeBlock(def, `Item "${key}"`));
+        if (reason) quarantine(REGISTRY_KINDS.INVENTORY_ITEMS, key, QUARANTINE_SCOPE.DEFINITION, reason);
     }
 
     // ---- 3. Recipes against the items that survived ------------------------

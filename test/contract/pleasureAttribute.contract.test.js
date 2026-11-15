@@ -16,12 +16,15 @@
  *     and its flat key matches the shared vocabulary
  *     (flatKey(TRAIT_GROUPS.PLEASURE, STAT_NAMES.PLEASURE) === 'Pleasure.pleasure');
  *   - spawn seeding: a spawned human droid carries attributes.Pleasure.pleasure
- *     === 0 with its declaration, and carries no energy attribute (the
- *     humanoids are not coal burners);
+ *     === 0 with its declaration, and carries Physical.energy as its own,
+ *     independent meter (the human droids were given one when food arrived —
+ *     `wiki/decisions/consumable-items.md`);
  *   - clamping: setEntityAttributeDelta keeps the value inside [0, 100];
  *   - lifecycle: the per-turn step drains the meter 1 per round (floor 0) and
- *     never eliminates a human droid (the death check is wired to the energy
- *     attribute, which these blueprints do not declare);
+ *     never eliminates a human droid: the death check is wired to the ENERGY
+ *     attribute alone, so an empty pleasure meter is a state and not a death —
+ *     true whether or not the blueprint also declares energy (it now does, and
+ *     the energy life-and-death rule is the consumables/energy contracts).
  *   - serialization: the live value rides the world state (getEntities()).
  *
  * Driven the same house way as the coal-generator contract: build the world
@@ -83,15 +86,24 @@ describe('pleasure attribute — whole-entity 0-100 meter (human droids)', () =>
     });
 
     for (const blueprint of HUMAN_BLUEPRINTS) {
-        it(`spawn: ${blueprint} seeds pleasure at 0 with its declaration (and no energy attribute)`, () => {
+        it(`spawn: ${blueprint} seeds pleasure at 0 with its declaration, beside its own energy meter`, () => {
             const { world, entityId } = buildWorldWith(blueprint);
             const entity = world.stateEntityController.getEntity(entityId);
 
             expect(entity.attributes?.[PLEASURE_GROUP]?.[PLEASURE_STAT], 'seeds at 0').toBe(0);
             expect(entity.attributesConfig?.[PLEASURE_GROUP]?.[PLEASURE_STAT]).toEqual(PLEASURE_DECL);
-            // The human droids are not coal burners: no energy attribute at all,
-            // so the energy-life (drain/despawn) loop has nothing to touch.
-            expect(entity.attributes?.[TRAIT_GROUPS.PHYSICAL]?.[STAT_NAMES.ENERGY], 'no energy stat').toBeUndefined();
+            // The human droids now declare Physical.energy too (the meter food
+            // charges, wiki/decisions/consumable-items.md). Pleasure is a
+            // SEPARATE meter with its own declaration: neither seeding nor a
+            // delta on one is allowed to touch the other, and only energy
+            // decides life.
+            expect(entity.attributes?.[TRAIT_GROUPS.PHYSICAL]?.[STAT_NAMES.ENERGY], 'energy seeded too').toBe(100);
+            expect(entity.attributesConfig?.[TRAIT_GROUPS.PHYSICAL]?.[STAT_NAMES.ENERGY]?.max).toBe(100);
+
+            // Raising pleasure to its ceiling leaves energy exactly where it was.
+            world.setEntityAttributeDelta(entityId, PLEASURE_GROUP, PLEASURE_STAT, 100);
+            expect(pleasureOf(world, entityId)).toBe(100);
+            expect(world.getEntityAttribute(entityId, TRAIT_GROUPS.PHYSICAL, STAT_NAMES.ENERGY), 'energy untouched').toBe(100);
         });
     }
 
@@ -116,8 +128,8 @@ describe('pleasure attribute — whole-entity 0-100 meter (human droids)', () =>
 
         // The per-turn step drains the declared Pleasure.pleasure meter by its
         // drainPerTurn (1): two drain turns take 3 -> 1. The death check is
-        // wired to the energy attribute, which these blueprints do not declare
-        // — so the droid survives any pleasure value, including the floor.
+        // wired to the ENERGY attribute alone, so a pleasure value of its own —
+        // including the floor — never kills, whatever else the blueprint declares.
         world.setEntityAttributeDelta(entityId, PLEASURE_GROUP, PLEASURE_STAT, 3);
         world.entityEnergyController.processEnergyTurn(1);
         world.entityEnergyController.processEnergyTurn(2);

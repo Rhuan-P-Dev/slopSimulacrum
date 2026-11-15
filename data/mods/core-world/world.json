@@ -19,6 +19,15 @@
       "item": "knife",
       "slot": "firstFit:maleHand,m1Leg,droidRollingBall",
       "count": 5
+    },
+    {
+      "item": "apple",
+      "slot": "bestAvailable",
+      "count": 2
+    },
+    {
+      "item": "goldenApple",
+      "slot": "bestAvailable"
     }
   ]
 }

@@ -571,5 +571,37 @@
         "message": "Touch failed - that part is not sensitive (or the droid has no pleasure meter)."
       }
     ]
+  },
+  "eat": {
+    "description": "Eat one item you are carrying: the item is spent and the amount it declares is charged onto your Physical.energy, clamped at your maximum (an apple is 15, a golden apple 60; you drain 1 per turn, and energy at 0 eliminates you). Pass the item instance id as itemId (the id in your inventory listing) or the item type as itemType (e.g. 'apple') to say WHICH thing you eat. At full energy the meal refuses and the item is kept. Only an item that declares it is food can be eaten.",
+    "prose": {
+      "verbPhrase": "ate something"
+    },
+    "targetingType": "self_target",
+    "requirements": [],
+    "consequences": [
+      {
+        "type": "eatItem",
+        "target": "entity",
+        "params": {
+          "itemId": ":itemId",
+          "itemType": ":itemType"
+        }
+      },
+      {
+        "type": "log",
+        "target": "entity",
+        "level": "info",
+        "message": "Ate one carried item (the item is spent, the energy is charged)."
+      }
+    ],
+    "failureConsequences": [
+      {
+        "type": "log",
+        "target": "entity",
+        "level": "warn",
+        "message": "Eating failed - not carrying anything edible, or already at full energy."
+      }
+    ]
   }
 }

@@ -96,9 +96,16 @@ describe('Player initial-spawn loadout (real world, data-driven)', () => {
         const tshirts = items.filter(i => i.type === 'tshirt');
         expect(tshirts.length).toBe(1);
 
+        // Food (the consumables feature): every client entity carries two apples
+        // and one golden apple from the spawn. A humanoid droid has no coal burner,
+        // so eating is how its Physical.energy is refilled - see
+        // wiki/decisions/consumable-items.md.
+        expect(items.filter(i => i.type === 'apple').length).toBe(2);
+        expect(items.filter(i => i.type === 'goldenApple').length).toBe(1);
+
         // Full expected count: coal(10) + t1(1) + t1 ammo(1) + knives(5) +
-        // tshirt(1) = 18.
-        expect(items.length).toBe(18);
+        // tshirt(1) + apple(2) + goldenApple(1) = 21.
+        expect(items.length).toBe(21);
 
         // CORE REGRESSION ASSERTION: no initial-spawn entry was skipped for lack
         // of a valid slot. (Other startup warnings are allowed; only "no valid slot"

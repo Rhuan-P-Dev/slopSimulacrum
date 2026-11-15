@@ -86,5 +86,27 @@
       "grain": 22,
       "translucency": 0
     }
+  },
+  "fruitFlesh": {
+    "name": "Fruit flesh",
+    "density": 0.85,
+    "properties": {
+      "flammability": 45,
+      "electricalConduction": 65,
+      "moistureRetention": 92,
+      "cutResistance": 12,
+      "impactResistance": 25,
+      "wearResistance": 10,
+      "heatConduction": 38
+    },
+    "visual": {
+      "hue": 352,
+      "saturation": 74,
+      "lightness": 42,
+      "metalness": 2,
+      "roughness": 26,
+      "grain": 8,
+      "translucency": 32
+    }
   }
 }

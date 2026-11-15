@@ -244,6 +244,16 @@
     color: #fff;
 }
 
+/*
+ * The middle voice: the world answered without anything breaking — an eat the round has
+ * scheduled, or a refusal like a full meter. Before this rule `info` carried no style at
+ * all (a bare, background-less box), which is half of why the eat message read as broken.
+ */
+.inventory-toast.info {
+    background: rgba(30, 62, 78, 0.92);
+    color: #e8f6ff;
+}
+
 @keyframes inventory-toast-in {
     from {
         opacity: 0;
@@ -348,6 +358,22 @@
 .equip-btn.place:hover {
     background: color-mix(in srgb, var(--neon-cyan, #00e5ff) 15%, transparent);
     border-color: var(--neon-cyan, #00e5ff);
+}
+
+/* Consumable "Eat" button (rendered only for items whose definition declares a
+   `consume` block) - green, the color of a body being refueled. */
+.equip-btn.eat {
+    background: transparent;
+    color: var(--neon-green, #2ecc71);
+    border: 1px solid color-mix(in srgb, var(--neon-green, #2ecc71) 45%, transparent);
+    font-size: 11px;
+    padding: 2px 6px;
+    border-radius: 3px;
+}
+
+.equip-btn.eat:hover {
+    background: color-mix(in srgb, var(--neon-green, #2ecc71) 15%, transparent);
+    border-color: var(--neon-green, #2ecc71);
 }
 
 /* =========================================================================

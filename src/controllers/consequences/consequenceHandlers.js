@@ -12,6 +12,8 @@
  *   droid's Pleasure.pleasure by the sensitivity of the touched body part
  * - DoorTraversalHandler: the crossDoor action — walks the entity through a
  *   door of its current room into the room beyond
+ * - EatConsequenceHandler: the eat action — spends one carried consumable and
+ *   charges the body's whole-entity resource meter (wiki/decisions/consumable-items.md)
  *
  * @module ConsequenceHandlers
  */
@@ -27,6 +29,7 @@ import SensitivePartConsequenceHandler from './SensitivePartConsequenceHandler.j
 import { handleDropItem } from './DropItemHandler.js';
 import { handlePickUpItem } from './PickUpItemHandler.js';
 import { handleConsumeItemAndDamage } from './ConsumeItemHandler.js';
+import { handleEatItem } from './EatConsequenceHandler.js';
 import { handlePlaceMachine } from '../core/PlaceMachineHandler.js';
 import { handleRetrieveMachine } from '../core/RetrieveMachineHandler.js';
 import { handleDoorTraversal } from './DoorTraversalHandler.js';
@@ -148,6 +151,8 @@ class ConsequenceHandlers {
             dropItem: (targetId, params, context) => this._handleDropItem(params, context),
             pickUpItem: (targetId, params, context) => this._handlePickUpItem(params, context),
             consumeItemAndDamage: (targetId, params, context) => this._handleConsumeItemAndDamage(targetId, params, context),
+            // The `eat` action: spend one carried consumable, charge the body's meter.
+            eatItem: (targetId, params, context) => this._handleEatItem(params, context),
             // Walk through a named door of the actor's current room into the room beyond.
             traverseDoor: (targetId, params, context) => this._handleTraverseDoor(params, context),
             // Place a carried machine into the world (becomes isStatic, self-running).
@@ -231,6 +236,20 @@ class ConsequenceHandlers {
                 damageHandler: this.damageHandler
             },
             targetId,
+            params,
+            context
+        );
+    }
+
+    /**
+     * Handles the eatItem consequence by delegating to EatConsequenceHandler. The
+     * actor is the target of its own meal, so no target component id is passed.
+     * @private
+     */
+    _handleEatItem(params, context) {
+        return handleEatItem(
+            { worldStateController: this.worldStateController },
+            null,
             params,
             context
         );
