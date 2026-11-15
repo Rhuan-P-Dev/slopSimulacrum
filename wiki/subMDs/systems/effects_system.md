@@ -80,7 +80,7 @@ un-dropped. Spatial moves revert only when the captured origin still resolves.
 
 | Caller | Path |
 | --- | --- |
-| A verb, weapon, item or machine in the data | a consequence of type `applyEffect` naming an effect id (and optional `rounds`) |
+| A verb, weapon, item or machine in the data | a consequence of type `applyEffect` naming an effect id — **or carrying its own definition** in `params.effect`, validated by the registry law and run as `inline:<verb>` (transient, never a registry row) — with optional `rounds` on both |
 | The live operator / System LLM | `apply_effect` / `remove_effect` / `list_effects` in `OPERATIONS`, run by `/system/execute` |
 | A new effect defined for this session | `register_effect` — memory only; its answer names `POST /mods/apply` as the durable path |
 | A designed body, every spawn | its blueprint's `appliesTo`-declared effects, applied by `InbornEffects` |

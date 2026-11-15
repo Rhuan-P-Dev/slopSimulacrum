@@ -113,6 +113,25 @@ through `facade.applyEffect` / `removeEffects` / `listActiveEffects`:
 - **any action, weapon or item in the data** — the `applyEffect` consequence type, so an
   inflicted burn and a console-applied burn are the same instance with the same expiry and
   the same revert (`src/controllers/consequences/ApplyEffectHandler.js`);
+- **the same consequence carrying its own effect** — `params.effect` instead of
+  `params.effectId`: a definition authored inside the action, applied by
+  `EffectEngine.applyDefinition` and living exactly as long as its instances. One
+  consequence type, one parameter slot each, and the two are mutually exclusive (an author
+  silently overriding the row they also named is what a data file should refuse).
+
+**A carried effect is TRANSIENT, and that is the load-bearing word.** `applyDefinition`
+writes no registry: the definition is validated by the same law the registry runs
+(`EffectDefinitionRules.validateInlineEffectDefinition`) and then travels with the
+application, and the instance keeps a reference to it so its `perRound` keeps ticking —
+`onRoundStart` reads `instance.definition` first and falls back to the registry row, which
+is also why a *registered* instance deliberately carries nothing and goes on reading its
+live row (a mod swap still changes what a live effect does). It runs under the synthetic id
+`inline:<action name>`, which is what the NPC context line and `removeEffects({ effectId })`
+note. Two refusals belong to the inline path alone: `appliesTo` (its only reader is the
+spawn scan over registry rows, so the claim would sit inert) and an operation parameter left
+as a `:token` — the dispatcher substitutes placeholders in every consequence payload before
+a handler runs, this layer resolves none itself, and writing an unresolved token would add a
+condition literally named `:Physical.strength`.
 - an **inborn body effect** (below);
 - the **model's own context** — `LlmContextController` reports, per part, the effects
   running on it with the rounds remaining, and whole-body effects separately. A model that
@@ -190,6 +209,12 @@ those parts actually carry, what it ends up wearing — and cannot be authored b
 
 ## Alternatives rejected
 
+- **Registering a carried effect, then applying it by id.** Rejected: it makes hitting
+  something with a verb a definition-authoring event. Every application would need an id
+  nobody collides with, a later mod swap could supersede the row (an overlay entry is
+  dropped when a package ships the same id), and `list_effect_definitions` would fill with
+  rows no author ever wrote. `EffectsController` stays the one owner of everything that
+  outlives a single application.
 - **A script or expression per effect.** Rejected: it would make a data package an
   execution surface, and it would grow a second, parallel implementation of every mutation
   the consequence layer already owns.
