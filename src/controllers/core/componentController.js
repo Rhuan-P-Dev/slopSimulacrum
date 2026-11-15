@@ -166,6 +166,15 @@ class ComponentController {
      * @returns {boolean}
      */
     updateComponentStat(instanceId, traitId, statName, value, skipDamageEvent = false) {
+        // The same law as updateComponentStatDelta below, narrowed to what a SET carries:
+        // a number that is not finite is not a value. A NaN written into a stat never
+        // leaves (`NaN + x` is NaN), and it defeats both checks every consumer makes —
+        // `existence > 0` and the damage listener's strict decrease. A SET also takes
+        // strings and objects by contract, and those are nobody's business to refuse here.
+        if (typeof value === 'number' && !Number.isFinite(value)) {
+            Logger.warn(`[ComponentController] updateComponentStat: refusing ${value} for ${traitId}.${statName} of component ${instanceId} — not a finite number.`);
+            return false;
+        }
         // Read current stats to get the old value.
         // A semantic SET may introduce a brand-new trait group (e.g. an organ
         // granting Movement.move to a component that had no Movement stats yet —
@@ -201,6 +210,19 @@ class ComponentController {
      * @returns {boolean}
      */
     updateComponentStatDelta(instanceId, traitId, statName, delta, skipDamageEvent = false) {
+        // THE CHOKE POINT. Every write that moves a stat value comes through here —
+        // damage, stat effects and their removal, organ contributions, holding cost,
+        // corrosion ticks — so this is where a value that is not a finite number stops
+        // instead of landing in the world. A NaN in a stat is permanent, it outlives the
+        // action that wrote it, and it disables both checks every consumer makes:
+        // `existence > 0` (the part stops being destroyable and stays a valid target) and
+        // the damage listener's strict decrease (which is why the panel showed a body part
+        // as `null` with no broken-part event anywhere). Refusing is a warn plus `false` —
+        // the same shape as "no such stat", so every caller already handles it.
+        if (typeof delta !== 'number' || !Number.isFinite(delta)) {
+            Logger.warn(`[ComponentController] updateComponentStatDelta: refusing to add "${delta}" to ${traitId}.${statName} of component ${instanceId} — not a finite number.`);
+            return false;
+        }
         // Read current stats to get the old value
         const stats = this.statsController.getStats(instanceId);
         if (stats && stats[traitId] && typeof stats[traitId][statName] === 'number') {

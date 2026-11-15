@@ -170,6 +170,13 @@ class EquippedItemStatsController {
      * @returns {boolean} True if the stat was updated, false if item/trait/stat not found.
      */
     updateStat(eqId, traitId, statName, value) {
+        // The finite-number law of updateStatDelta above, on the absolute write: this
+        // setter only ever touches numeric stats, so a number that is not finite is never
+        // a legitimate value here either.
+        if (typeof value === 'number' && !Number.isFinite(value)) {
+            Logger.warn(`[EquippedItemStatsController] Cannot updateStat: refusing ${value} for "${traitId}.${statName}" on eqId "${eqId}" — not a finite number.`);
+            return false;
+        }
         const stats = this._itemStats[eqId];
         if (!stats || !stats[traitId]) {
             Logger.warn(`[EquippedItemStatsController] Cannot updateStat: eqId "${eqId}" has no trait "${traitId}".`);
@@ -203,6 +210,15 @@ class EquippedItemStatsController {
      * @returns {boolean} True if the stat was updated, false if item/trait/stat not found or not numeric.
      */
     updateStatDelta(eqId, traitId, statName, delta) {
+        // The same law as ComponentController.updateComponentStatDelta, on the twin store
+        // (a worn garment, a held tool): a value that is not a finite number never enters
+        // a stat. Damage against an equipped item and the stat consequence both land here,
+        // and a NaN in this store drains an item out of the panel exactly the way it did
+        // with a body part — permanently, and without any event firing.
+        if (typeof delta !== 'number' || !Number.isFinite(delta)) {
+            Logger.warn(`[EquippedItemStatsController] Cannot updateStatDelta: refusing to add "${delta}" to "${traitId}.${statName}" on eqId "${eqId}" — not a finite number.`);
+            return false;
+        }
         const stats = this._itemStats[eqId];
         if (!stats || !stats[traitId]) {
             Logger.warn(`[EquippedItemStatsController] Cannot updateStatDelta: eqId "${eqId}" has no trait "${traitId}".`);

@@ -3,31 +3,108 @@
  * Handles both :Trait.stat (numeric) and :variable (any type) placeholder patterns.
  *
  * Responsibility: Resolves placeholder strings to actual values from resolution context.
- * Supports embedded placeholders within template strings.
+ * Supports embedded placeholders within template strings, and one arithmetic suffix
+ * (`*N` a multiplier, `/N` a divisor) on a numeric placeholder.
  *
  * @module PlaceholderResolver
  */
 
 import Logger from './Logger.js';
-import {
-    DEFAULT_PLACEHOLDER_MULTIPLIER,
-    PARSING_RADIX,
-} from './Constants.js';
+import { DEFAULT_PLACEHOLDER_MULTIPLIER } from './Constants.js';
 
 /**
- * Placeholder regex: matches exact placeholders with optional sign and multiplier.
- * Supports both :Trait.stat and simple :variable patterns.
- * Format: `:Trait.stat` or `:variable` or `-:Trait.stat` or `*:3` or `-:variable*3`
- * @type {RegExp}
+ * The arithmetic a placeholder may carry: `*N` multiplies, `/N` divides. `N` is a
+ * plain decimal number — integer or fractional — optionally signed: `*:3`, `*0.5`,
+ * `/2`, `/-2`. ONE grammar feeds both regexes below, so an expression means the same
+ * whether it is the whole param or buried inside a log template.
+ *
+ * WHY A DIVISOR IS HERE. The grammar used to be `*N` with an INTEGER `N`, and an
+ * expression this module does not recognise does not fail: it falls through to a
+ * template substitution. `":Physical.strength/2"` therefore resolved to the STRING
+ * `"50/2"`, and every consumer that did arithmetic on it got NaN. A NaN written into a
+ * stat is permanent (`NaN + x` is NaN, `existence > 0` is false so the part stops
+ * being a valid target, and the damage listener never fires because `NaN < 0` is
+ * false), which is how one typo in one action file turned a droid's body part into a
+ * `null` in the panel. Halving is a real thing world data wants to say, so it is now
+ * sayable — and a suffix that is NOT a number (`/0`) resolves to nothing rather than
+ * to Infinity, so no expression this module accepts can hand the world a non-finite
+ * value. That is the resolver's half of the guard; the damage handler and the stat
+ * write each refuse a non-finite value too, because a bad value can also arrive as an
+ * UNRESOLVED placeholder (`:Physical.armor`), which is left as its own text by design.
+ *
+ * `PLACEHOLDER_ARITHMETIC` is one group pair: (operator, operand).
+ *
+ * Both fragments are EXPORTED because the law of what-counts-as-a-placeholder has exactly
+ * one owner. The effect-definition guard (`EffectDefinitionRules`) has to refuse a
+ * parameter that still wears this shape, and a guard built from these fragments cannot
+ * disagree with what this module actually substitutes. A re-typed copy did: it kept the
+ * old `*N`-only grammar after the language grew `/N` and decimals, so an unresolved
+ * `:NoSuch.stat/2` walked past the guard and into an operation as a stat name.
+ * @type {string}
  */
-const EXACT_PLACEHOLDER_REGEX = /^(-)?(:[a-zA-Z0-9_.]+)(?:\*(-?\d+))?$/;
+export const PLACEHOLDER_ARITHMETIC = '([*/])(-?\\d+(?:\\.\\d+)?)';
 
 /**
- * Embedded placeholder regex: matches placeholders within template strings.
- * Supports both :Trait.stat and :variable patterns.
+ * The placeholder head: `:` then a dotted path (`:Physical.strength`, `:fuel`). Exported
+ * with `PLACEHOLDER_ARITHMETIC`, for the same reason.
+ * @type {string}
+ */
+export const PLACEHOLDER_TOKEN = ':[a-zA-Z0-9_.]+';
+
+/**
+ * Placeholder regex: matches a whole-string placeholder with an optional sign and an
+ * optional arithmetic suffix. Supports both :Trait.stat and simple :variable patterns.
+ * Format: `:Trait.stat` or `:variable` or `-:Trait.stat` or `*:3` or `/2` or `-:variable*0.5`
  * @type {RegExp}
  */
-const EMBEDDED_PLACEHOLDER_REGEX = /(-)?(:[a-zA-Z0-9_.]+)(\*(-?\d+))?/g;
+const EXACT_PLACEHOLDER_REGEX = new RegExp(`^(-)?(${PLACEHOLDER_TOKEN})(?:${PLACEHOLDER_ARITHMETIC})?$`);
+
+/**
+ * Embedded placeholder regex: the SAME grammar, unanchored, for placeholders inside a
+ * template string. Kept derived from `PLACEHOLDER_ARITHMETIC` rather than written out
+ * again so the two can never drift into two dialects.
+ * @type {RegExp}
+ */
+const EMBEDDED_PLACEHOLDER_REGEX = new RegExp(`(-)?(${PLACEHOLDER_TOKEN})(?:${PLACEHOLDER_ARITHMETIC})?`, 'g');
+
+/**
+ * Turns the arithmetic suffix into the factor to multiply by — a divisor becomes its
+ * reciprocal, so both operators end in the single operation every caller performs.
+ * @param {string|undefined} operator - `*`, `/`, or undefined for no suffix
+ * @param {string|undefined} operand - the matched number, as text
+ * @returns {number|null} the factor, or null when the suffix is not a number usable
+ *          as one (a divisor of zero), which the caller leaves unresolved
+ * @private
+ */
+function _toFactor(operator, operand) {
+    if (!operator) return DEFAULT_PLACEHOLDER_MULTIPLIER;
+    const amount = Number(operand);
+    if (!Number.isFinite(amount)) return null;
+    if (operator === '/') return amount === 0 ? null : 1 / amount;
+    return amount;
+}
+
+/**
+ * Applies sign and suffix to a numeric placeholder value, or reports that the
+ * expression produced nothing usable.
+ * @param {string} raw - the whole matched text, returned unchanged on refusal
+ * @param {string|undefined} signGroup - the leading `-`, when the expression has one
+ * @param {string|undefined} operator - `*`, `/`, or undefined
+ * @param {string|undefined} operand - the matched number, as text
+ * @param {number} value - the resolved stat value
+ * @returns {number|string} the scaled number, or `raw` when the expression is not a
+ *          finite number (a division by zero, or an overflow past Infinity)
+ * @private
+ */
+function _scale(raw, signGroup, operator, operand, value) {
+    const factor = _toFactor(operator, operand);
+    const scaled = factor === null ? NaN : (signGroup === '-' ? -1 : 1) * value * factor;
+    if (!Number.isFinite(scaled)) {
+        Logger.warn(`[PlaceholderResolver] "${raw}" does not resolve to a finite number — left unresolved.`);
+        return raw;
+    }
+    return scaled;
+}
 
 /**
  * Resolves placeholders in params.
@@ -74,8 +151,9 @@ function _resolveStringPlaceholder(str, resolutionContext) {
     }
 
     // Otherwise, treat as a template string and replace all embedded placeholders.
-    // Supports both :Trait.stat (numeric) and :variable (any type) patterns.
-    return str.replace(EMBEDDED_PLACEHOLDER_REGEX, (_match, sign, placeholder, multiplier) => {
+    // Supports both :Trait.stat (numeric, with the arithmetic suffix) and :variable
+    // (any type) patterns.
+    return str.replace(EMBEDDED_PLACEHOLDER_REGEX, (_match, sign, placeholder, operator, operand) => {
         const pName = placeholder.substring(1);
         const val = resolutionContext[pName];
         if (val === undefined) return _match;
@@ -85,9 +163,7 @@ function _resolveStringPlaceholder(str, resolutionContext) {
             return String(val);
         }
 
-        const s = sign === '-' ? -1 : 1;
-        const m = multiplier ? parseInt(multiplier.substring(1), PARSING_RADIX) : DEFAULT_PLACEHOLDER_MULTIPLIER;
-        return s * val * m;
+        return _scale(_match, sign, operator, operand, val);
     });
 }
 
@@ -100,13 +176,11 @@ function _resolveStringPlaceholder(str, resolutionContext) {
  * @private
  */
 function _resolveExactPlaceholder(match, resolutionContext) {
-    const sign = match[1] === '-' ? -1 : 1;
     const placeholder = match[2].substring(1);
-    const multiplier = match[3] ? parseInt(match[3], PARSING_RADIX) : DEFAULT_PLACEHOLDER_MULTIPLIER;
     const value = resolutionContext[placeholder];
 
     if (value !== undefined && typeof value === 'number') {
-        return sign * value * multiplier;
+        return _scale(match[0], match[1], match[3], match[4], value);
     }
 
     if (value !== undefined && typeof value !== 'number') {

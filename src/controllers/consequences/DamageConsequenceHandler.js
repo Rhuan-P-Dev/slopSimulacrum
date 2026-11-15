@@ -77,8 +77,13 @@ class DamageConsequenceHandler {
             return this._handleChannelDamage(targetId, channel, value, targetType, context);
         }
 
-        // Legacy stat-delta path (back-compat).
+        // Legacy stat-delta path (back-compat). The same law as the channel path above:
+        // this branch writes through two stores (component stats, equipped-item stats),
+        // so it checks the value itself rather than trusting the write beneath it.
         const { trait, stat } = resolvedParams;
+        if (typeof value !== 'number' || !Number.isFinite(value)) {
+            return { success: false, message: `damageComponent: value must be a resolved number (got "${value}")`, data: null };
+        }
         if (targetType === 'entity') {
             return this._damageEntityComponents(targetId, trait, stat, value);
         }
@@ -123,6 +128,22 @@ class DamageConsequenceHandler {
      * @private
      */
     _handleChannelDamage(targetId, channel, value, targetType, context) {
+        // A damage value that never became a finite number is refused HERE, before any
+        // of it is multiplied into a stat. The value arrives through placeholder
+        // resolution and both ways that fails end in text: an unresolved placeholder
+        // (`:Physical.armor` — a stat the actor does not have) and an expression the
+        // resolver refuses (`/0`) both stay strings. `"50/2" * 1` is NaN, and a NaN
+        // written into `existence` is permanent: `NaN + x` is NaN forever, the part never
+        // satisfies `existence > 0` again (so it stays a valid target), and the damage
+        // listener never fires because `NaN < 0` is false — which is how one typo in one
+        // action file turned a droid's body part into a `null` in the panel. This is the
+        // law for every channel caller (punch, cut, shoot, volley, shotgun — the shotgun
+        // branch already refused a non-number); the stat write itself refuses it again
+        // (ComponentController.updateComponentStatDelta), and the legacy stat-delta path
+        // below says the same words.
+        if (typeof value !== 'number' || !Number.isFinite(value)) {
+            return { success: false, message: `damageComponent: value must be a resolved number (got "${value}")`, data: null };
+        }
         const split = this._resolveAttackerSplit(context, channel);
         if (targetType === 'entity') {
             return this._damageEntityComponentsByChannel(targetId, channel, value, split);

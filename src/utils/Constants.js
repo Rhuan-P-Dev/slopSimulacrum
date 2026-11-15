@@ -32,12 +32,6 @@ export const DEFAULT_SYNERGY_BASE_MULTIPLIER = 1.0;
 export const DEFAULT_PLACEHOLDER_MULTIPLIER = 1;
 
 /**
- * Base-10 radix used for parsing integer values in placeholder strings.
- * @type {number}
- */
-export const PARSING_RADIX = 10;
-
-/**
  * Synergy multiplier threshold below which no synergy bonus is applied.
  * Values greater than 1.0 indicate a bonus; 1.0 is the baseline (no bonus).
  * @type {number}
