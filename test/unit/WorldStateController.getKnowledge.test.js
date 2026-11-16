@@ -10,6 +10,10 @@
  *   - the wired path carries the shipped action definitions with their stat gates
  *     (the composition wiring for the `actions` section — an empty section is a
  *     legal state, so it needs a positive pin).
+ *   - the wired path carries the Entities rows too, and NOT the kinds that already
+ *     have a tab of their own (the composition wiring for the `definitions`
+ *     section, knowledge_viewer.md Sec. 12 — same reason: an empty section is a
+ *     legal state, so only a positive pin tells a dropped injection apart from one).
  *
  * Harness mirrors test/unit/WorldStateController.getMaterialRegistry.test.js
  * (same buildWorldState / UniversalTickSystem setup).
@@ -65,12 +69,33 @@ describe('WorldStateController.getKnowledge', () => {
         const universal = viaFacade.actions.filter((a) => a.requirements.length === 0);
         expect(universal.map((a) => a.name).length).toBeGreaterThan(0);
 
+        // The composition wires the Entities registries into the codex too
+        // (knowledge_viewer.md Sec. 12): a real world answers with definitions, so
+        // dropping the injected registries cannot pass unnoticed here. Counted, not
+        // snapshotted - the install directory may carry a mod this change has not seen.
+        expect(viaFacade.definitions.length).toBeGreaterThan(0);
+        const kinds = new Set(viaFacade.definitions.map((row) => row.kind));
+        expect(kinds.has('components')).toBe(true);
+        expect(kinds.has('rooms')).toBe(true);
+        // The kinds with their own tab are not repeated as bare rows.
+        for (const owned of ['traits', 'materials', 'crafting', 'inventoryItems', 'actions']) {
+            expect(kinds.has(owned)).toBe(false);
+        }
+
+        // Every row's kind has a tab of its own: a definition whose kind has no tab
+        // is a definition the reader cannot reach (knowledge_viewer.md Sec. 12).
+        const tabbed = new Set(viaFacade.definitionGroups.flatMap((group) => group.kinds));
+        expect(tabbed.size).toBeGreaterThan(0);
+        for (const kind of kinds) expect(tabbed.has(kind)).toBe(true);
+
         // Deep-copy check: mutate a returned nested value, call again, mutation is gone.
         viaFacade.items[0].name = 'MUTATED';
         viaFacade.traitStats.vocabulary.stats.push('hacked');
+        viaFacade.definitions[0].definition.MUTATED = true;
         const again = world.getKnowledge();
         expect(again.items[0].name).not.toBe('MUTATED');
         expect(again.traitStats.vocabulary.stats).not.toEqual(viaFacade.traitStats.vocabulary.stats);
+        expect(again.definitions[0].definition.MUTATED).toBeUndefined();
     });
 
     it('unwired facade: getKnowledge() returns the total empty-shape payload, never null (spec §4.3)', () => {
@@ -84,7 +109,8 @@ describe('WorldStateController.getKnowledge', () => {
 
         expect(payload).not.toBeNull();
         expect(payload).toEqual(emptyKnowledgePayload());
-        expect(topLevelKeys(payload)).toEqual(['actions', 'items', 'recipes', 'traitStats']);
+        expect(topLevelKeys(payload))
+            .toEqual(['actions', 'definitionGroups', 'definitions', 'items', 'recipes', 'traitStats']);
         expect(payload.traitStats.vocabulary.traitGroups).toEqual(Object.values(TRAIT_GROUPS));
     });
 
@@ -96,6 +122,7 @@ describe('WorldStateController.getKnowledge', () => {
         const body = JSON.parse(JSON.stringify({ knowledge: world.getKnowledge() }));
 
         expect(body.knowledge).not.toBeNull();
-        expect(topLevelKeys(body.knowledge)).toEqual(['actions', 'items', 'recipes', 'traitStats']);
+        expect(topLevelKeys(body.knowledge))
+            .toEqual(['actions', 'definitionGroups', 'definitions', 'items', 'recipes', 'traitStats']);
     });
 });

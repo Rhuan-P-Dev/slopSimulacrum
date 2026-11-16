@@ -22,6 +22,10 @@
  *   - The `actions` section: every action as a row (name, description, its stat
  *     gate normalized, the full raw definition), sorted, with the same fail-fast
  *     validation and defensive-copy rules as the other sections.
+ *   - The `definitions` section (knowledge_viewer.md Sec. 12): one row per
+ *     top-level entry of every registry the codex does not show on its own tab,
+ *     with the references a reader would otherwise have to look up resolved
+ *     server-side, the entry kept verbatim, and the same fail-fast rules.
  *
  * The fixtures mirror the real data/*.json shapes so the assertions are
  * meaningful against actual project data.
@@ -161,6 +165,47 @@ const ACTIONS = {
 const HOLDING_COST = { model: 'massBurden', equipableItems: ['knife', 't1'] };
 
 /**
+ * The Entities registries (knowledge_viewer.md Sec. 12) — one slice of every
+ * shape data/mods/core-* actually uses: a keyed map of objects, an id mapped to
+ * an array of `[part, slot]` rows (the engine's own blueprint form), a bare
+ * number per key, a metadata key, null and empty entries, and rows that
+ * reference the three lookup tables (materials, items, recipes).
+ * @type {Object<string, *>}
+ */
+const DEFINITIONS = {
+    components: {
+        _comment: 'metadata key — must never surface as a row',
+        head: {
+            name: 'Head',
+            form: { volume: 3 },
+            materials: [{ material: 'iron', fraction: 1 }],
+            internalComponents: ['sensor'],
+        },
+        // A legacy top-level volume, the precedence the item rows already mirror.
+        leg: { name: 'Leg', volume: 5, materials: [{ material: 'wood', fraction: 1 }] },
+        // The other label field the registries use, and a legacy top-level volume.
+        tail: { displayName: 'Tail Unit', volume: 2 },
+    },
+    internalComponents: { sensor: { name: 'Proximity Sensor', form: { volume: 1 } } },
+    blueprints: {
+        walker: ['head', ['leg', 'left'], { type: 'leg', slot: 'right' }],
+        authoredNothing: [],
+        nullEntry: null,
+    },
+    sensitiveParts: { sensitivityOfZero: 0, sensitivityOfNinety: 90 },
+    rooms: {
+        cave: { name: 'The Cave' },
+        start: { name: 'Start Room', connections: { north: { target: 'cave' }, secret: 'unresolved_key' } },
+    },
+    worldObjects: { statue: { name: 'Statue', room: 'start', blueprint: 'walker' } },
+    npcs: { guard: { name: 'Guard', room: 'cave', initialItems: [{ item: 'knife', count: 2 }] } },
+    machines: { forge: { name: 'Forge', blueprint: 'walker', itemKey: 'knife', recipeId: 'single_knife_to_t1' } },
+    effects: { burning: { name: 'Burning', durationRounds: 3 } },
+    outfits: { m1: [{ item: 'knife', component: 'hand' }] },
+    entityAttributes: { attributes: { m1Droid: { Pleasure: { pleasure: 0 } } } },
+};
+
+/**
  * The matter→stats authority, stubbed: the codex receives it as a function, so a
  * test can hand it any derivation without a MaterialController.
  * @param {Object} itemDef
@@ -186,6 +231,7 @@ function build(overrides = {}) {
         actions = ACTIONS,
         holdingCost = HOLDING_COST,
         deriveStatsFn = deriveStats,
+        definitions = DEFINITIONS,
     } = overrides;
     return new KnowledgeController({
         traits,
@@ -196,6 +242,7 @@ function build(overrides = {}) {
         actions,
         holdingCost,
         deriveStats: deriveStatsFn,
+        definitions,
     });
 }
 
@@ -274,7 +321,7 @@ describe('KnowledgeController — validation (fail-fast)', () => {
 // ---------------------------------------------------------------------------
 
 describe('KnowledgeController — empty fallback construction', () => {
-    it('7.1.8 all-empty fallback registries (five {}) construct fine; getKnowledge() returns the full envelope shape with all three sections present and empty (vocabulary populated)', () => {
+    it('7.1.8 all-empty fallback registries construct fine; getKnowledge() returns the full envelope shape with every section present and empty (vocabulary populated)', () => {
         const kc = new KnowledgeController({
             traits: {},
             materials: {},
@@ -298,6 +345,32 @@ describe('KnowledgeController — empty fallback construction', () => {
             recipes: [],
             items: [],
             actions: [],
+            // An absent `definitions` injection is a degraded section, not a missing
+            // key: the envelope keeps its shape so the client needs no special case.
+            definitions: [],
+            // The tab map, spelled out rather than computed by the code under test.
+            // A kind earns its tab from the vocabulary, not from rows existing, so
+            // the bar survives a degraded set of registries
+            // (wiki/subMDs/frontend/knowledge_viewer.md Sec. 12).
+            // The bar the payload carries: each family its codex view tabs and its
+            // kind tabs (`sections` / `kinds`).
+            definitionGroups: [
+                {
+                    id: 'parts',
+                    label: 'Parts',
+                    sections: ['traitStats', 'materials', 'items'],
+                    kinds: ['components', 'internalComponents', 'sensitiveParts'],
+                },
+                { id: 'blueprints', label: 'Blueprints', sections: ['recipes'], kinds: ['blueprints', 'machines'] },
+                { id: 'world', label: 'World', sections: [], kinds: ['world', 'rooms', 'worldObjects'] },
+                { id: 'characters', label: 'Characters', sections: [], kinds: ['npcs', 'outfits', 'entityAttributes'] },
+                {
+                    id: 'data',
+                    label: 'Data',
+                    sections: ['actions'],
+                    kinds: ['holdingCost', 'worldRules', 'effects', 'synergy', 'materialDamageTypes', 'materialDropRates'],
+                },
+            ],
         });
     });
 });
@@ -730,5 +803,124 @@ describe('KnowledgeController — actions section', () => {
         const second = kb.getKnowledge();
         expect(second.actions.map((a) => a.name)).toEqual(['cut', 'punch', 'shootT1', 'touch']);
         expect(second.actions[0].requirements).toEqual([{ trait: 'Physical', stat: 'sharpness', minValue: 20 }]);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// ENTITIES — every registry the codex does not show on its own tab
+// (wiki/subMDs/frontend/knowledge_viewer.md Sec. 12)
+// ---------------------------------------------------------------------------
+
+describe('KnowledgeController — definitions section (Sec. 12)', () => {
+    /** All rows of one kind, in payload order. @returns {Array<Object>} */
+    const rowsOf = (kb, kind) => kb.getKnowledge().definitions.filter((r) => r.kind === kind);
+    /** One facet's value by label, or null when the row does not carry it. @returns {string|null} */
+    const facet = (row, label) => row.facets.find((f) => f.label === label)?.value ?? null;
+
+    it('one row per top-level entry; metadata keys and null entries are not entries', () => {
+        const kb = build();
+        expect(rowsOf(kb, 'components').map((r) => r.id)).toEqual(['head', 'leg', 'tail']);
+        // Ids sort inside a kind (code-unit order, like every other section).
+        expect(rowsOf(kb, 'sensitiveParts').map((r) => r.id))
+            .toEqual(['sensitivityOfNinety', 'sensitivityOfZero']);
+        // A null entry has nothing to show; an empty blueprint IS an entry (the
+        // author wrote it, and "this blueprint has no parts" is a fact to display).
+        expect(rowsOf(kb, 'blueprints').map((r) => r.id)).toEqual(['authoredNothing', 'walker']);
+    });
+
+    it('groups by kind in the shared vocabulary order, and never repeats an owned kind', () => {
+        const rows = build().getKnowledge().definitions;
+        const kinds = [...new Set(rows.map((r) => r.kind))];
+        expect(kinds.indexOf('components')).toBeLessThan(kinds.indexOf('blueprints'));
+        expect(kinds.indexOf('blueprints')).toBeLessThan(kinds.indexOf('rooms'));
+        expect(kinds.indexOf('rooms')).toBeLessThan(kinds.indexOf('worldObjects'));
+        // The kinds with a tab of their own are lookup tables here, never rows.
+        for (const owned of ['traits', 'propertyTraitMapping', 'materials', 'crafting', 'inventoryItems', 'actions']) {
+            expect(kinds).not.toContain(owned);
+        }
+    });
+
+    it('resolves the references a reader would otherwise have to look up', () => {
+        const kb = build();
+        const head = rowsOf(kb, 'components').find((r) => r.id === 'head');
+        expect(facet(head, 'volume')).toBe('3');
+        expect(facet(head, 'composition')).toBe('Iron x1');
+        expect(facet(head, 'organs')).toBe('Proximity Sensor');
+        // The legacy top-level volume is read with the runtime's own precedence.
+        expect(facet(rowsOf(kb, 'components').find((r) => r.id === 'leg'), 'volume')).toBe('5');
+        // A blueprint's children, with the slot a mounted part hangs on.
+        const walker = rowsOf(kb, 'blueprints').find((r) => r.id === 'walker');
+        expect(facet(walker, 'parts')).toBe('Head, Leg [left], Leg [right]');
+        // A room's doors, the far room named; a door with no readable target keeps
+        // its own key rather than inventing a destination.
+        expect(facet(rowsOf(kb, 'rooms').find((r) => r.id === 'start'), 'exits'))
+            .toBe('north -> The Cave, secret');
+        const statue = rowsOf(kb, 'worldObjects')[0];
+        expect(facet(statue, 'room')).toBe('Start Room');
+        expect(facet(statue, 'blueprint')).toBe('walker');
+        const forge = rowsOf(kb, 'machines')[0];
+        expect(facet(forge, 'item')).toBe('Knife');
+        expect(facet(forge, 'recipe')).toBe('T1 Field Assembly');
+        expect(facet(rowsOf(kb, 'npcs')[0], 'carries')).toBe('Knife x2');
+        expect(facet(rowsOf(kb, 'outfits')[0], 'wears')).toBe('Knife on hand');
+    });
+
+    it('gives a bare scalar entry a facet, so its only datum is not hidden', () => {
+        const rows = rowsOf(build(), 'sensitiveParts');
+        expect(facet(rows[0], 'value')).toBe('90');
+        expect(facet(rows[1], 'value')).toBe('0');
+    });
+
+    it('names a row only from what the entry declares (name, else displayName)', () => {
+        const kb = build();
+        expect(rowsOf(kb, 'components').find((r) => r.id === 'head').name).toBe('Head');
+        expect(rowsOf(kb, 'components').find((r) => r.id === 'tail').name).toBe('Tail Unit');
+        // An array entry declares no name: the card titles itself with the id.
+        expect(rowsOf(kb, 'blueprints')[0].name).toBeNull();
+        expect(rowsOf(kb, 'components').find((r) => r.id === 'head').description).toBeNull();
+    });
+
+    it('carries the entry verbatim, and survives the defensive copy', () => {
+        const kb = build();
+        const head = rowsOf(kb, 'components').find((r) => r.id === 'head');
+        expect(head.definition).toEqual(DEFINITIONS.components.head);
+        expect(rowsOf(kb, 'blueprints').find((r) => r.id === 'walker').definition)
+            .toEqual(DEFINITIONS.blueprints.walker);
+        const first = kb.getKnowledge();
+        const length = first.definitions.length;
+        first.definitions[0].definition.name = 'MUTATED';
+        first.definitions[0].facets.push({ label: 'invented', value: 'x' });
+        first.definitions.push({ kind: 'invented', id: 'x' });
+        const second = kb.getKnowledge();
+        expect(second.definitions).toHaveLength(length);
+        expect(second.definitions[0].definition.name).not.toBe('MUTATED');
+        expect(second.definitions[0].facets.find((f) => f.label === 'invented')).toBeUndefined();
+    });
+
+    it('degrades to an empty Entities section when no registries are injected', () => {
+        // Built without `definitions` at all: a degraded codex, warned at boot,
+        // never a boot failure (the same rule the capability inputs follow).
+        const kb = new KnowledgeController({
+            traits: TRAITS, materials: MATERIALS, propertyTraitMapping: PROPERTY_TRAIT_MAPPING,
+            recipes: CRAFTING, items: INVENTORY_ITEMS,
+        });
+        expect(kb.getKnowledge().definitions).toEqual([]);
+    });
+
+    it('fail-fast: rejects an input it cannot enumerate, and a kind it has no tab for', () => {
+        expect(() => build({ definitions: [] })).toThrow(TypeError);
+        expect(() => build({ definitions: 'components' })).toThrow(TypeError);
+        // A kind the codex already shows on its own tab is not an Entities kind:
+        // it would surface the same data twice, in two different shapes.
+        for (const owned of ['traits', 'propertyTraitMapping', 'materials', 'crafting', 'inventoryItems', 'actions']) {
+            expect(() => build({ definitions: { [owned]: {} } }), owned).toThrow(TypeError);
+        }
+        // A mistyped kind would drop a whole group in silence, so it is refused too.
+        expect(() => build({ definitions: { compnents: {} } })).toThrow(TypeError);
+        // An entry that is neither absent nor enumerable is refused, while the
+        // shapes the data really uses (map, array) pass.
+        expect(() => build({ definitions: { components: 7 } })).toThrow(TypeError);
+        expect(() => build({ definitions: { components: {}, blueprints: ['head'] } })).not.toThrow();
+        expect(() => build({ definitions: {} })).not.toThrow();
     });
 });

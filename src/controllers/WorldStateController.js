@@ -2311,7 +2311,10 @@ class WorldStateController {
 
     /**
  * Returns the full knowledge codex payload (wiki/subMDs/frontend/knowledge_viewer.md):
-     * `{ traitStats: { groups, mappings, materials, vocabulary }, recipes, items }`.
+     * `{ traitStats: { groups, mappings, materials, vocabulary }, recipes, items,
+     *   actions, definitions, definitionGroups }` (`definitions` is the flat rows of
+     *   every registry the codex does not show on its own tab, and `definitionGroups`
+     *   how they group into the definition tabs, Sec. 12).
      * Static reference data — served via GET /knowledge (not embedded in the
      * mutable world state or the broadcast; same static-vs-mutable separation as
      * getMaterialRegistry). Thin passthrough to the injected KnowledgeController;

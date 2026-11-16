@@ -67,6 +67,7 @@ import MaterialController from '../controllers/materials/MaterialController.js';
 import CraftingController from '../controllers/crafting/CraftingController.js';
 import MachineRegistryController from '../controllers/core/MachineRegistryController.js';
 import KnowledgeController from '../controllers/knowledge/KnowledgeController.js';
+import { readDefinitionRegistries } from '../controllers/knowledge/definitionSemantics.js';
 import WorldRulesController from '../controllers/worldRules/WorldRulesController.js';
 import EffectsController from '../controllers/effects/EffectsController.js';
 import OnDamageDropListener from '../controllers/worldRules/OnDamageDropListener.js';
@@ -334,6 +335,14 @@ export function buildWorldState(tickSystem = null, registryStore = null, { modLo
     // derivation authority; the codex calls it on a RECIPE (pure, boot-time),
     // never on an instance (wiki/subMDs/frontend/knowledge_viewer.md).
     const holdingCostRegistry = store.read(REGISTRY_KINDS.HOLDING_COST);
+    // The Entities section of the codex reads the kinds no other controller here
+    // needs a snapshot of (components, organs, blueprints, NPCs, rooms, props,
+    // machines, effects, outfits, sensitivity, synergy, the world rules). The
+    // kind list comes from shared/RegistryKinds.js, so a new kind reaches the
+    // codex without a change here; the read is ONE boot pass through the same
+    // store the rest of this function reads (wiki/subMDs/frontend/
+    // knowledge_viewer.md Sec. 12).
+    const definitionRegistries = readDefinitionRegistries(store);
     const knowledgeController = new KnowledgeController({
         traits: traitsRegistry,
         materials: materialsRegistry,
@@ -342,7 +351,8 @@ export function buildWorldState(tickSystem = null, registryStore = null, { modLo
         items: inventoryItemRegistry,
         actions: actionRegistry,
         holdingCost: holdingCostRegistry,
-        deriveStats: (itemDef) => materialController.derive(itemDef)
+        deriveStats: (itemDef) => materialController.derive(itemDef),
+        definitions: definitionRegistries
     });
     // The `store` argument below hands each data store the LIVE registry holder
     // (identity-stable, content swapped as one step), so a mod applied at a round

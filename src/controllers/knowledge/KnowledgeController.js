@@ -42,6 +42,17 @@
  * 82.5, and the capability scan really does offer it). That coarseness is the
  * engine's, not a decoration added here (wiki/subMDs/frontend/knowledge_viewer.md).
  *
+ * The ENTITIES section (`definitions`) answers the other question a codex has
+ * to answer: not "how is this derived" but "what is defined at all". It carries
+ * one row per top-level entry of every registry kind the codex does not already
+ * present on its own tab — components, organs, blueprints, NPCs, rooms, props,
+ * machines, effects, outfits, sensitivity, synergy, the world rules — with the
+ * entry verbatim under a resolved header. The kind list is derived from
+ * `shared/RegistryKinds.js`, so a new kind appears without a change here; the
+ * reading itself lives in `definitionSemantics.js` (the same placement
+ * `actionSemantics.js` chose: the reading is world knowledge, the client is
+ * disposable). wiki/subMDs/frontend/knowledge_viewer.md Sec. 12.
+ *
  * Deliberately has NO `getAll()`: the static codex must stay out of the
  * world-state broadcast aggregation (same exclusion rule as CraftingController
  * and RoomChatController — shipping a codex in every full-state update would
@@ -57,6 +68,12 @@ import { getDefinitionFootprint } from '../../utils/definitionVolume.js';
 import { resolveRecipeBaseStats } from '../../utils/itemBaseStats.js';
 import { describeAction } from './actionSemantics.js';
 import {
+    buildDefinitionRows,
+    buildDefinitionGroups,
+    ungroupedDefinitionKinds,
+    DEFINITION_REGISTRY_KINDS,
+} from './definitionSemantics.js';
+import {
     TRAIT_GROUPS,
     STAT_NAMES,
     EXISTENCE_GONE_AT,
@@ -70,7 +87,7 @@ import {
 
 /**
  * The total empty-shape knowledge payload:
- * all three sections present, all arrays/objects empty, vocabulary filled
+ * every section present (including `definitions`), all arrays/objects empty, vocabulary filled
  * from the shared module. Used by WorldStateController.getKnowledge() when
  * the controller is unwired — the facade must never emit a null envelope
  * member (a null would make the client take the error state instead of
@@ -92,6 +109,12 @@ export function emptyKnowledgePayload() {
         recipes: [],
         items: [],
         actions: [],
+        // The Entities rows: none, but the key is present so the client renders a
+        // per-section empty state, never an error (Sec. 6).
+        definitions: [],
+        // With no rows there is no family to caption either: this fallback bar
+        // carries only the codex's own tabs (Sec. 12).
+        definitionGroups: [],
     };
 }
 
@@ -137,8 +160,14 @@ class KnowledgeController {
      *   matter→stats authority (`MaterialController.derive`) handed over as a
      *   function, so this controller keeps its no-controller-deps invariant.
      *   Optional — absent, no item reports derived stats or enabled actions.
+     * @param {Object<string, *>} [deps.definitions] - The registries the Entities
+     *   section lists, keyed by registry kind (`{ components: {...}, rooms: {...}
+     *   }`) — read once at boot by the composition root through the registry
+     *   source (`readDefinitionRegistries`). Optional — absent, the Entities tab
+     *   renders its empty state (a degraded codex, warned at boot, never a boot
+     *   failure). wiki/subMDs/frontend/knowledge_viewer.md Sec. 12.
      */
-    constructor({ traits, materials, propertyTraitMapping, recipes, items, actions, holdingCost, deriveStats }) {
+    constructor({ traits, materials, propertyTraitMapping, recipes, items, actions, holdingCost, deriveStats, definitions }) {
         this._traits = traits;
         this._materials = materials;
         // Keep the raw value so the plain-object validator below can reject
@@ -161,6 +190,11 @@ class KnowledgeController {
         this._actions = actions;
         this._holdingCost = holdingCost;
         this._deriveStats = deriveStats;
+        // The Entities section's registries, keyed by kind. Kept as given so the
+        // validator below sees exactly what was injected. Absent is a degraded
+        // section, not a broken boot (the same degradation the capability inputs
+        // follow).
+        this._definitions = definitions;
 
         // Fail-fast at boot (project rule §6): validate before the payload is
         // assembled so a corrupted registry can never enter the internal state.
@@ -177,13 +211,36 @@ class KnowledgeController {
             `${Object.keys(this._materials).length} materials, ` +
             `${Object.keys(this._recipes).length} recipes, ` +
             `${Object.keys(this._items).length} items, ` +
-            `${Object.keys(this._actions ?? {}).length} actions`
+            `${Object.keys(this._actions ?? {}).length} actions, ` +
+            `${this._assembled.definitions.length} definitions in ` +
+            `${this._assembled.definitionGroups.length} tab families`
+        );
+        this._warnUngroupedDefinitionKinds();
+    }
+
+    /**
+     * A registry kind the family table does not name is grouped into the fallback
+     * family and shown anyway; the log says which, because a kind that turned up
+     * in the codex without a caption of its own is a kind nobody has placed yet
+     * (wiki/subMDs/frontend/knowledge_viewer.md Sec. 12).
+     * @private
+     */
+    _warnUngroupedDefinitionKinds() {
+        const ungrouped = ungroupedDefinitionKinds(DEFINITION_REGISTRY_KINDS);
+        if (ungrouped.length === 0) return;
+        Logger.warn(
+            `[KnowledgeController] definition registry kinds with no tab family of their own ` +
+            `(${ungrouped.join(', ')}): shown under the fallback family. Name them in ` +
+            'DEFINITION_FAMILY_LIST (src/controllers/knowledge/definitionSemantics.js).'
         );
     }
 
     /**
  * Returns the full knowledge codex payload of wiki/subMDs/frontend/knowledge_viewer.md:
-     * `{ traitStats: { groups, mappings, materials, vocabulary }, recipes, items, actions }`.
+     * `{ traitStats: { groups, mappings, materials, vocabulary }, recipes, items, actions, definitions, definitionGroups }`.
+     * `definitionGroups` is the tab bar itself: one entry per family, each naming
+     * the codex view tabs (`sections`) and the registry kinds (`kinds`) it holds,
+     * so the client draws bands without knowing what any family means.
      *
      * A FRESH DEEP COPY is returned on every call (defensive-copy rule): callers
      * (the route, the client) can never mutate controller state through it.
@@ -198,7 +255,9 @@ class KnowledgeController {
      *   },
      *   recipes: Array<{id: string, name: string, description: string|null, inputs: Array<{type: string, quantity: number, name: string}>, outputs: Array<{type: string, quantity: number, name: string}>}>,
      *   items: Array<{type: string, name: string, description: string|null, volume: number, externalVolume: number|null, materials: Array<{material: string, fraction: number, role: string|null}>|null, traits: Object<string, Object<string, number>>, capabilities: {equipable: boolean, capacity: number, footprint: number, baseStats: Object<string, Object<string, number>>, actions: Array<{name: string, description: string|null}>}, definition: Object}>,
-     *   actions: Array<{name: string, description: string|null, requirements: Array<{trait: string|null, stat: string|null, minValue: number|null}>, summary: {targeting: string|null, targetingDeclared: boolean, range: number|null, narration: string|null, effects: Array<{type: string, on: string|null, text: string, described: boolean}>, failureEffects: Array<Object>}, definition: Object}>
+     *   actions: Array<{name: string, description: string|null, requirements: Array<{trait: string|null, stat: string|null, minValue: number|null}>, summary: {targeting: string|null, targetingDeclared: boolean, range: number|null, narration: string|null, effects: Array<{type: string, on: string|null, text: string, described: boolean}>, failureEffects: Array<Object>}, definition: Object}>,
+     *   definitions: Array<{kind: string, id: string, name: string|null, description: string|null, facets: Array<{label: string, value: string}>, definition: *}>,
+     *   definitionGroups: Array<{id: string, label: string, sections: string[], kinds: string[]}>
      * }}
      */
     getKnowledge() {
@@ -239,6 +298,44 @@ class KnowledgeController {
         this._validateItemEntries();
         this._validateActionEntries();
         this._validateCapabilityInputs();
+        this._validateDefinitionRegistries();
+    }
+
+    /**
+     * Validates the Entities section's registries (knowledge_viewer.md Sec. 12).
+     * The rule is deliberately thin: these registries are validated by their own
+     * owners at boot (the composition root's startup pass, `validateOutfitRegistry`,
+     * `MachineRegistryController`, the world-rules owner), and a second copy of
+     * any of those rules here would be a forked rule (`CHG-2`). What the codex
+     * DOES require is that each injected registry is a shape it can enumerate
+     * (a plain object or an array — never null, never a scalar), and that every
+     * injected key is a registry kind of this section: a kind name the
+     * composition root mistyped would otherwise drop a whole group in silence.
+     * @private
+     */
+    _validateDefinitionRegistries() {
+        if (this._definitions === undefined) {
+            Logger.warn(
+                '[KnowledgeController] no definition registries injected — the Entities section will render empty. '
+                + 'The composition root reads them with readDefinitionRegistries(store).'
+            );
+            return;
+        }
+        if (!this._definitions || typeof this._definitions !== 'object' || Array.isArray(this._definitions)) {
+            throw new TypeError('[KnowledgeController] definitions must be a plain object keyed by registry kind (or absent).');
+        }
+        for (const [kind, registry] of Object.entries(this._definitions)) {
+            if (!DEFINITION_REGISTRY_KINDS.includes(kind)) {
+                throw new TypeError(
+                    `[KnowledgeController] "${kind}" is not an Entities-section registry kind `
+                    + '(a kind the codex already shows on its own tab, or an unknown one).'
+                );
+            }
+            if (registry !== undefined && registry !== null
+                && typeof registry !== 'object') {
+                throw new TypeError(`[KnowledgeController] "${kind}" registry must be an object or an array.`);
+            }
+        }
     }
 
     /**
@@ -519,6 +616,12 @@ class KnowledgeController {
     _assembleKnowledge() {
         return {
             actions: this._buildActions(),
+            // The Entities section: every registry the codex does not already show
+            // on its own tab (wiki/subMDs/frontend/knowledge_viewer.md Sec. 12).
+            definitions: this._buildDefinitions(),
+            // The tab bar below the codex's own tabs: one entry per family, each
+            // naming the registry kinds it owns (a kind is a tab).
+            definitionGroups: buildDefinitionGroups(DEFINITION_REGISTRY_KINDS),
             traitStats: {
                 groups: this._buildGroups(),
                 mappings: this._buildMappings(),
@@ -528,6 +631,27 @@ class KnowledgeController {
             recipes: this._buildRecipes(),
             items: this._buildItems(),
         };
+    }
+
+    /**
+     * The Entities rows: one per top-level entry of every registry kind the codex
+     * does not present on its own tab, with the reference tables (materials,
+     * items, recipes) handed to the reader that resolves names. Pure and total —
+     * an absent registry contributes no rows, so a partial injection degrades to
+     * partial groups rather than a crash (wiki/subMDs/frontend/knowledge_viewer.md
+     * Sec. 12).
+     * @returns {Array<Object>}
+     * @private
+     */
+    _buildDefinitions() {
+        return buildDefinitionRows({
+            registries: this._definitions ?? {},
+            references: {
+                materials: this._materials,
+                items: this._items,
+                recipes: this._recipes,
+            },
+        });
     }
 
     /**
