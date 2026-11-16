@@ -4,6 +4,8 @@
 
 The Knowledge Viewer is a read-only "codex" tab in the main UI: a full, always-true reference of the game's static data. It shows the material property → trait → stat derivation chain (the global trait molds, the property-to-stat mapping table, the per-material property values, and the cross-layer pinned vocabulary), every recipe with display names resolved, and every item type with its fields plus its capabilities — what it can do, derived from the action registry, the equip list and its own matter (§8) — and every action with the stat gate that governs it (§9). It is the read-only mirror of the [crafting panel](../systems/crafting_system.md): the same registries, but with no mutation, no turn cost, and no entity requirement.
 
+The completeness guarantee of that mirror is the **definition tabs**: one per registry the other tabs do not already own — components, blueprints, rooms, world objects, NPCs, machines, effects, outfits and the balance levers — each tab listing that registry's definitions, references resolved and the raw definition attached (§12).
+
 ## 2. Why a dedicated read-only codex tab
 
 The live world-state panels — inventory, component viewer, crafting — show *instance* state: values merged and material-derived per component, per-instance durability, what a particular component currently holds. A reference is a different kind of truth: it is consulted as a rulebook, so it must be complete (every recipe, every item type, every mapping row) and independent of whatever happens to be on screen.
@@ -150,6 +152,15 @@ the reset also drops the search focus, because the click owns it now.
 — the same badges under every query — and rendering it made an empty result look
 full. Without a term it is untouched.
 
+**Every definition tab is a list like the others.** Its rows carry no special search
+rule (§12): a term matches the id, the display name, a resolved facet, or anything
+inside the collapsed definition — which is how a reader finds the one room whose door
+target no facet spelled out. Being one flat array in the payload (`definitions`), they
+needed no new search code: the section list gained one entry, and the counts followed —
+the tab bar shows that section's count split **per kind**, because that is the unit a
+reader clicks (the `def:` prefix keeps a kind tab from being mistaken for a section id,
+or for a kind a mod happens to name `items`).
+
 **The Traits tab counts mapping rows plus stat cells.** It has no single row type, so
 "how many" is defined once, in the filter, and the badge and the tab read that one
 definition. A group whose **name** matches keeps all its stats; otherwise only the
@@ -204,9 +215,172 @@ exposes a stylesheet, so text is the only surface the claim has. What stays out 
 scope is importing server behavior into a client test, or reaching outside this
 repository -- reading `src/controllers/**` to judge the browser's markup tests the
 wrong seam, and a path outside the repo makes the test depend on the machine rather
-than on the change.
+than on the change. The same test pins the **family rows** of §12 — every family the
+server names must have a CSS row and a label — because an ungrouped kind would be a
+section of the tab bar with no styling and no name.
 
-## 12. Related Documentation
+## 12. Why the codex lists every definition, and not only the four it renders
+
+The four content tabs answered "how is a stat derived", "how is a thing made", "what is a thing" and "what can be done". They did not answer the plain question a mod author asks first: **what is defined in this world, and what does its definition say?** Components, blueprints, internal components, rooms, world objects, NPCs, machines, effects, outfits, synergies, damage types, drop rates, sensitive parts, entity attributes, the world rules and the holding-cost levers were all in the server's registries and nowhere in the viewer. The **Entities** tab is the fifth section of the payload (`definitions`): one row per top-level entry of every registry kind the other tabs do not already own, each showing its name, its id, the references it declares resolved to names, and its full definition in a collapsed appendix — the same appendix convention §9 introduced for actions, and the reason an unusual field is never missing from the tab.
+
+**The kind list is derived, never hand-listed.** `DEFINITION_REGISTRY_KINDS` is the shared registry vocabulary (`shared/RegistryKinds.js` — the one authority for what a registry kind is, `CR NAME-9`) minus the kinds the codex already renders as their own content (traits, the property→trait mapping, materials, recipes, items, actions). A registry a mod adds therefore appears with no change to the viewer: a new kind in the vocabulary becomes a group with a readable heading (`kindGroupLabel` pluralizes the camelCase identifier), which is the only way the tab can stay complete without a maintenance chore. The exclusion set is why the same data is never shown twice in two shapes: `materials` is a lookup table for the Entities rows, not an Entities row.
+
+**The reading is server-side, at the controller seam.** `src/controllers/knowledge/definitionSemantics.js` is the module that reads registries: `readDefinitionRegistries(store)` asks `RegistryStore.read(kind)` for the derived kinds (a kind is named, never a path — `CR B-1`), and `buildDefinitionRows({registries, references})` turns them into rows. The client receives rows and renders them; it also serializes each row's `definition` whole, which is what makes a field no facet reader knows about findable in search (§10) without the browser having to understand any registry. The split is the project's own: the server knows the data format, the disposable client knows only the payload shape.
+
+**The entry is carried verbatim.** A row keeps `definition` as a `structuredClone` of what the registry holds — not a projection onto the fields the reader happens to like. Facets are additive on top of that: the appendix always has the whole entry, so a reader that resolves one reference cannot accidentally hide another field. This is what makes the tab honest about data the reader has never seen, and it is the same contract the Actions tab already keeps for an action's raw definition.
+
+**A facet is a reference resolved, or the raw key kept.** The rows would otherwise ask the reader to cross-reference three registries by hand, so the ones with a name available get one: a component's material composition (`Iron x1`) and its organs, a blueprint's children with the slot each hangs on (`Leg [left]` — the `[part, slot]` row form is the engine's own, `EntityController`'s expansion), a room's doors with the far room named, a prop's or machine's room / blueprint / item / recipe, an NPC's starting kit. When no entry exists to name, the raw key is printed and nothing is invented or dropped — the same rule the codex follows everywhere, and the reason a dangling reference is *visible* in the codex instead of silently prettified.
+
+**Every shape the data uses is a row.** A keyed map (`components`), an id mapped to an array of child ids (`blueprints`), an array of wear claims (`outfits`), a bare number (`sensitiveParts`) — the reader does not decide which shapes are legitimate, because the authors have already used all of them. A key beginning with `_` is metadata, not an entry; an entry that is `null`, `undefined` or an empty object defines nothing and gets no row. A scalar entry gets a `value` facet, because for those registries the number *is* the definition.
+
+**Validation follows the section's own failure modes.** A `definitions` input that is not an enumerable object, a registry that is neither absent nor enumerable, a kind the codex already owns, and a kind outside the shared vocabulary all fail the boot (`TypeError`, the same fail-fast contract as §4 and §9): each of those mistakes would silently drop a group or duplicate one, which is exactly what a reference must not do. An *absent* injection is different in kind — a degraded codex — and yields an empty section with a boot warning, like the capability inputs.
+
+**One tab per registry kind, and every tab under a family header.** The section shipped first
+as a single "Entities" tab holding every kind in one flat page, and that page turned out to
+be 68 component definitions followed, with no break and no header, by the world rules — which
+is why readers called it "a list of things that are not entities". A kind is now its own tab,
+and the tabs are banded by family: `DEFINITION_FAMILY_LIST` in `definitionSemantics.js` is the
+one authority for how tabs group, and the payload carries the result as
+`definitionGroups: [{ id, label, sections, kinds }]` — one entry per family, its codex view
+tabs in `sections` and its kinds in `kinds`, each list in the order the bar shows it. The five
+view tabs sit *inside* the families rather than in a block of their own above them: the
+objection to one flat wall applies with the same force to a bar whose first five tabs are
+unrelated to the rows beneath them, so the reading of a trait lives with the parts a trait
+modifies, a recipe with the blueprints, and what an action may do with the world's rules.
+
+| Family | Caption | View tabs (`sections`) | Kinds (their tabs) |
+| --- | --- | --- | --- |
+| `parts` | Parts | `traitStats`, `materials`, `items` | `components`, `internalComponents`, `sensitiveParts` |
+| `blueprints` | Blueprints | `recipes` | `blueprints`, `machines` |
+| `world` | World | — | `world`, `rooms`, `worldObjects` |
+| `characters` | Characters | — | `npcs`, `outfits`, `entityAttributes` |
+| `data` | Data | `actions` | `holdingCost`, `worldRules`, `effects`, `synergies`, `materialDamageTypes`, `materialDropRates` |
+
+So the `Parts` row reads `Traits & Stats | Materials | Items | Components | Internal Parts |
+Sensitive Parts`: a view of the matter first, then the lists of that matter.
+
+Three rules keep that table from rotting into a hand-written list:
+
+- **The grouping is server-side; the tab list is derived client-side.** Which family a tab
+  belongs to is a statement about the world's data, and the codex's rule is that the client
+  knows no registry — so the *groups* ship in the payload and the *tabs* are derived from them
+  (`definitionGroupsOf`, `definitionTabsOf`, and the panel's `_familyBands()`, which draws one
+  row per group). That is what lets a registry a mod adds show up as a tab with no client
+  change, and what keeps `KnowledgeSearch` from importing a server module to enumerate kinds.
+  A family places a codex view tab by id but cannot invent one: `sections` is checked against
+  `CODEX_TAB_SECTION_IDS`, whose values are the panel's own `SECTION_IDS` (the equality is
+  pinned in `test/unit/KnowledgePanel.test.js`), and the panel skips a section id no view
+  answers to. What the client keeps is its own — the ids, the labels, and the view behind each
+  — and it invents no family of its own. Every derived kind id carries `DEFINITION_TAB_PREFIX`
+  (`def:`) so a kind a mod names `items` cannot masquerade as the Items section, and a
+  family-less kind is not dropped at all (next bullet).
+- **Assignment is total on both sides, so the table cannot hide a tab.**
+  `buildDefinitionGroups` throws on a kind the vocabulary does not have, on a kind grouped
+  twice, on a `sections` id outside `CODEX_TAB_SECTION_IDS`, and on a view tab two families
+  claim — all four are authoring mistakes in this file (fail-fast per §4), and one view in two
+  bands would be two tabs that can both be active. What nobody grouped joins the fallback
+  family `data` (`DEFINITION_FALLBACK_FAMILY_ID`): the kinds `ungroupedDefinitionKinds`
+  reports in the boot log, and any view tab the table forgot. The panel mirrors that at its
+  own edge — a view tab no group named and a kind the map has not caught up with join its last
+  band — because a tab the bar drops takes its content with it. Completeness of the reference
+  outranks tidiness of the bar.
+- **The families own definitions, never entities.** Nothing here reads the live roster: a
+  definition is read once per session from a registry and carries no live id, no room
+  position, no owner and no equip state, so there is no `entities` entry in the table and
+  the live list stays with the world panels (§4, `wiki/glossary.md` → Containment). Making a
+  family "own" entities would put the same truth on two surfaces, one of which goes stale
+  every tick. The renaming of the section away from "Entities" is part of the same honesty:
+  what this tab lists are definitions.
+
+**Naming follows what the kind actually is.** A tab's label is the kind's own words,
+pluralized (`sensitiveParts` → "Sensitive Parts"), with two exceptions spelled out in code:
+`npcs`/`npc` are acronyms the camelCase split cannot get right, and the `world` registry is
+one entry (a name, a tick rate, an inventory volume), so the plural "Worlds" would name a
+thing this server has exactly one of. The band's caption is the family's own label (`Parts`),
+and `knowledgeMarkupIntegrity.test.js` pins the band's classes (`knowledge-tab-family`,
+`-label`, `-tabs`) against the stylesheet — a band with no style was the failure this guards —
+and that the kind modifier `knowledge-tab--kind` is both emitted and styled, which is what
+tells a list of definitions apart from the view tabs it now shares a row with.
+
+**A facet link names a target, never a tab.** A facet is not only a sentence: it ships as
+`{ label, value, parts }`, where `parts` is the same sentence in order and a part that names an
+entry of another registry carries that entry's `kind` and `id` (`refPart`,
+`definitionSemantics.js`). `value` stays the concatenation of the parts' text, so the search,
+which reads rows as a dump, and a renderer that knew nothing about links both read the one thing
+the parts say. A reference this server cannot resolve keeps its raw key as plain text — an
+unresolved reference stays visible, and the codex never offers a destination that would lead
+nowhere. The client decides where a part goes: `referenceTabIdOf` (`KnowledgePanel.js`) sends a
+kind to the codex view that renders it (matter to Materials, objects to Items, verbs to Crafting &
+Items, the two trait tables to Traits & Stats) and any other kind to that kind's own `def:<kind>`
+tab, or answers null when this payload holds no such tab. The rule is one-directional on purpose:
+the server says *what* a name is an entry of, never where it should be shown, and the map from a
+kind to a view lives with the tabs. Its two sides are pinned to each other —
+`VIEW_TAB_OF_REFERENCE_KIND` must cover exactly the kinds of `CODEX_TAB_OWNED_KINDS`, the list the
+server uses to keep those kinds out of the definition tabs, so a kind cannot be excluded on one
+side of the wire and left without a destination on the other.
+
+A facet-link jump is the same jump the material, recipe and capability cross-links already are
+(§10): the sub bar clears, the global term survives when the target survives it and is dropped
+when it would empty the tab being opened, then the card is scrolled into view and flashed for 1.5
+s, keyed on the card's `data-definition` the way an item card keys on `data-item`. That made
+`targetSurvivesQuery` learn the `def:<kind>` tabs (`KnowledgeSearch.sectionRows`): a tab it could
+not check would keep the reader's term and land them on a no-match screen while the card they
+clicked sat unshown below. What is clickable is whatever the data declares — with the shipped
+world, a component's composition (its matter, 80 links) and its organs (37, each landing on the
+Internal Parts tab), a blueprint's children, a room's doors, a garment, an NPC's room and its
+pocket, and a machine's three forms. The markup is pinned against the stylesheet by
+`knowledgeMarkupIntegrity.test.js` (`knowledge-facet-link` is underlined text rather than a chip,
+`.knowledge-entity-card.knowledge-entity-highlight` is the flash).
+
+**A card is never wider than the grid that holds it, and a line inside it wraps.** Two overflow defaults were
+load-bearing and both were wrong at 220px. A grid track of `minmax(220px, 1fr)` is a FLOOR, so below ~460px of
+viewport the track itself overflowed the panel - the floor is now `min(220px, 100%)`. And a flex item's
+`min-width: auto` holds it at its own min-content width, which `word-break` does NOT lower (only
+`overflow-wrap: anywhere` lowers min-content): `Pleasure.pleasure` beside `starts 0, cap 100, drains 1 per
+turn` is wider than one card, so the value escaped the border and painted over the neighbouring card. So
+`.knowledge-entity-facet` wraps, the card and the value both carry `min-width: 0`, and label and value carry
+`overflow-wrap: anywhere` - a clause too long for the line drops to its own line under the label. Pinned by
+`test/unit/knowledgeMarkupIntegrity.test.js` ("a facet never overflows its card"), which reads the CSS
+declarations: there is no DOM harness in this repository, so what is checked is the rule, not pixels.
+
+**An entity-attribute row is one entity type, and the wrapper is not an entry.** `entityAttributes.json`
+wraps its body (`{ "attributes": { <blueprint>: { "<Group.stat>": { value, max, drainPerTurn } } } }`), and
+the literal rule — a row per top-level key — made the whole registry one card titled after the word
+`attributes`, with every number behind the appendix. A row is what the *reader of that registry* calls an
+entry: `EntityAttributeData.getAttributes(blueprint)` looks a type up *inside* `attributes`
+(`REGISTRY_ENTRY_HOLDERS`, `definitionSemantics.js`), so the tab lists `m1Droid`, `maleDroid`,
+`femaleDroid`, and each card's appendix is that type's own declarations. The unwrap follows the kind, not
+the file's shape: a mod that writes the map at the top level is read as it stands, and an empty holder says
+nothing. Because the entry's key IS a blueprint, the row states its own key as a reference into `blueprints`
+(a key no blueprint declares stays a plain word, as above), so the tab can be walked in both directions.
+Each attribute is one line under its own wire key — `Physical.energy: starts 100, cap 100, drains 1 per
+turn` — which is why a facet reader may now return an ARRAY of facets and be handed the row's key: the
+labels are the data's stat keys, not fields a reader could enumerate. Clause by clause, a number the entry
+does not declare is left out (`drainPerTurn` absent means no drain to the runtime, and the runtime's default
+is not the author's claim to display). Nothing is divided: `max / drainPerTurn` would print "100 turns",
+an arithmetic the engine never performs (§8, `CR DETERM-1`).
+
+**Two lines answer "where does this trait show up", and only when the tables say so.** Under an attribute line
+the card may carry `charged by` - the entries that WRITE that stat - and `granted by` - the organs whose
+`grants` declare it. Each names the field path the shipped tables actually use, and no other: an item charges
+under `consume.targetStat` (the `eat` action spends the item, `consume.energyGain` is the amount), an organ
+under every `overTime[]` effect (`intervalTurns`, `energyGainPerInterval`), and a grant is `grants[<Group.stat>]`.
+The official world therefore prints, under `Physical.energy`, `charged by: Apple (+15), Golden apple (+60),
+Coal Generator (every 5 turns, +10)` - each name a jump into the Items or the Internal Parts tab. It prints no
+`charged by` under `Pleasure.pleasure`, because no data writes it, and no `granted by` anywhere, because the
+shipped organs grant the FUNCTION stats (`Physical.strength`, `Movement.move`, `Manipulation.fine_controls`,
+`Mind.think_level`) and not the entity attributes. That absence is the finding, not a gap - and the words are
+`charged` / `granted` rather than a general `used by` for the same reason: the codex lists the relations the
+data declares, so a craft recipe or an outfit that named a stat would be read the day some world writes one,
+without a line invented in the meantime (§8, `CR DETERM-1`).
+
+**Debt this section does not pay.** Nothing in this section reads live entities, containment, or equip state
+— it is a reference to *definitions*, and the live counterpart stays with the world panels
+(`wiki/glossary.md` → Containment). An attribute line therefore states what a spawn is *seeded* with, never
+what a living droid currently carries: `starts 100` is the seed the file declares, not a current reading, and
+the codex holds no channel that could say otherwise.
+
+## 13. Related Documentation
 
 - [Crafting System](../systems/crafting_system.md) — the mutation twin whose registries the viewer renders (the knowledge viewer is its read-only mirror)
 - [Action System](../architecture/action_system.md) — the action definitions the Actions tab lists, and the live capability scan the codex deliberately does not duplicate
