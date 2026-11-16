@@ -23,11 +23,18 @@
  * perception flush, real prose controller), never through a fixture that could
  * only prove the builder agrees with itself.
  *
+ * THE SCOPE IS THE SHIPPED PACKAGE SET, NOT THE INSTALL DIRECTORY. The registry
+ * allowlists below are the wording this repository ships, so the world is built
+ * through `buildOfficialWorld` (see `test/helpers/officialPackageWorld.js` and
+ * `wiki/decisions/contract-test-scope.md`): `data/mods/` can hold a third-party
+ * overlay on the machine running this, and an action that overlay added is neither
+ * shipped wording nor a defect in it — it was failing the pin by existing.
+ *
  * @module test/contract/actionProse
  */
 
 import { describe, it, expect } from 'vitest';
-import { buildWorldState } from '../../src/composition/WorldComposition.js';
+import { buildOfficialWorld } from '../helpers/officialPackageWorld.js';
 import { UniversalTickSystem } from '../../src/utils/UniversalTickSystem.js';
 import { MAX_TICKS_PER_SECOND } from '../../src/utils/Constants.js';
 import { buildRoomProse } from '../../src/utils/RoundProseBuilder.js';
@@ -64,7 +71,7 @@ const SHALLOW_TYPES = [
  */
 function buildMatch() {
     const tick = new UniversalTickSystem(MAX_TICKS_PER_SECOND);
-    const { worldStateController: world } = buildWorldState(tick);
+    const { worldStateController: world } = buildOfficialWorld(tick);
     const room = world.roomsController.getUidByLogicalId('start_room');
     const attacker = world.stateEntityController.spawnEntity('maleDroid', room, { name: 'Adam' });
     const victim = world.stateEntityController.spawnEntity('smallBallDroid', room, { name: 'Ball' });
@@ -117,7 +124,7 @@ function punchParagraph(world) {
 
 describe('the action registry is the only source of action wording', () => {
     it('every shipped action declares the words prose will say', () => {
-        const { worldStateController: world } = buildWorldState(new UniversalTickSystem(MAX_TICKS_PER_SECOND));
+        const { worldStateController: world } = buildOfficialWorld();
         const registry = world.getActionRegistry() || {};
         const actions = Object.entries(registry).filter(([, def]) => def && typeof def === 'object');
         expect(actions.length, 'the live registry ships actions').toBeGreaterThan(0);
@@ -286,7 +293,7 @@ describe('the sentence names WHICH part of the target the act was aimed at', () 
     function buildTouchMatch() {
         const sensitive = DataLoader.loadRegistry(REGISTRY_KINDS.SENSITIVE_PARTS) || {};
         const tick = new UniversalTickSystem(MAX_TICKS_PER_SECOND);
-        const { worldStateController: world } = buildWorldState(tick);
+        const { worldStateController: world } = buildOfficialWorld(tick);
         const room = world.roomsController.getUidByLogicalId('start_room');
         const attacker = world.stateEntityController.spawnEntity('maleDroid', room, { name: 'Adam' });
         const victim = world.stateEntityController.spawnEntity('femaleDroid', room, { name: 'Eve' });

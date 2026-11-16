@@ -18,12 +18,19 @@
  * NOT start the tick loop and we do NOT wire the broadcast/LLM/socket layers, because
  * those are not needed for the read APIs under test and would leave open handles.
  *
+ * THE ACTION SET BELOW IS THE SHIPPED PACKAGE SET, NOT THE INSTALL DIRECTORY. The
+ * action names pinned in `(b2)` are this repository's content, so the world comes
+ * from `buildOfficialWorld` (`test/helpers/officialPackageWorld.js`,
+ * `wiki/decisions/contract-test-scope.md`): an overlay installed in the gitignored
+ * `data/mods/` contributes an action CI cannot see, and would fail this snapshot by
+ * being installed rather than by anything the controller did.
+ *
  * @module test/contract/worldStateController.contract
  */
 
 import { describe, it, expect, beforeAll } from 'vitest';
 import WorldStateController from '../../src/controllers/WorldStateController.js';
-import { buildWorldState } from '../../src/composition/WorldComposition.js';
+import { buildOfficialWorld } from '../helpers/officialPackageWorld.js';
 import { UniversalTickSystem } from '../../src/utils/UniversalTickSystem.js';
 import { MAX_TICKS_PER_SECOND } from '../../src/utils/Constants.js';
 import DataLoader from '../../src/utils/DataLoader.js';
@@ -165,10 +172,12 @@ let firstEntityId;
 
 beforeAll(() => {
     // Mirror src/server.js: create the tick system (do NOT start it) and build the
-    // world via the composition root (PHASE 5). buildWorldState() performs world init
-    // + initial capability scan, exactly like the old constructor did.
+    // world via the composition root (PHASE 5). buildOfficialWorld() is that same
+    // buildWorldState with the package set scoped to the shipped `core-*` packages,
+    // and it performs world init + initial capability scan, exactly like the old
+    // constructor did.
     const tickSystem = new UniversalTickSystem(MAX_TICKS_PER_SECOND);
-    ({ worldStateController: wsc } = buildWorldState(tickSystem));
+    ({ worldStateController: wsc } = buildOfficialWorld(tickSystem));
 
     // Load the NPC registry from data/mods/core-npcs/npcs.json so we can compute expected counts
     // data-driven (matching how WorldStateController._spawnNpcs() loads it).

@@ -10,10 +10,14 @@
  *     packages, none of the official ones rejected;
  *
  * The scope is the OFFICIAL set, not the install directory (same scoping as
- * `test/contract/officialMods.contract.test.js`, same reason): `data/mods/` can hold a
- * third-party package on the machine running this, and that package is neither part of the
- * shipped content nor a defect in it. Order, by contrast, IS asserted over everything
- * installed: a total order is a property of the merge, whoever the participants are.
+ * `test/contract/officialMods.contract.test.js`, same reason, now written down in
+ * `wiki/decisions/contract-test-scope.md`): `data/mods/` can hold a third-party package on
+ * the machine running this, and that package is neither part of the shipped content nor a
+ * defect in it. Order, by contrast, IS asserted over everything installed: a total order is
+ * a property of the merge, whoever the participants are - and the order asserted is the
+ * loader's (`loadOrder`, then id), NOT the alphabet. The two diverge as soon as a package
+ * sits at a loadOrder that does not sort with its id, and substituting one for the other is
+ * what made this file fail on a machine that merely had a mod installed.
  *   - every registry kind the world reads has a non-zero definition count live, so the
  *     service cannot report an empty world as a healthy one;
  *   - a plan against the world it was built from is empty — disk and world agree, and
@@ -29,7 +33,7 @@ import { buildWorldState } from '../../src/composition/WorldComposition.js';
 import { UniversalTickSystem } from '../../src/utils/UniversalTickSystem.js';
 import { MAX_TICKS_PER_SECOND } from '../../src/utils/Constants.js';
 import ModService from '../../src/services/ModService.js';
-import ModLoader, { OFFICIAL_ID_PREFIX } from '../../src/services/ModLoader.js';
+import ModLoader, { OFFICIAL_ID_PREFIX, sortModsForLoad } from '../../src/services/ModLoader.js';
 import { REGISTRY_KIND_LIST } from '../../shared/RegistryKinds.js';
 import { GameError } from '../../src/utils/CustomErrors.js';
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -51,9 +55,22 @@ describe('the mod view of a real world', () => {
             JSON.stringify(invalid)).toEqual([]);
         expect(official).toHaveLength(REGISTRY_KIND_LIST.length);
         expect(official.every((mod) => mod.id.startsWith(OFFICIAL_ID_PREFIX))).toBe(true);
-        // Order is total and deterministic (loadOrder, then id) over EVERYTHING installed,
-        // overlays included: the world's merge cannot depend on a readdir.
-        expect(mods.map((mod) => mod.id)).toEqual([...mods.map((mod) => mod.id)].sort());
+        // Order is total and deterministic over EVERYTHING installed, overlays included:
+        // the world's merge cannot depend on a readdir. What the loader guarantees is
+        // `loadOrder` ascending with ties broken by id (`sortModsForLoad`) - NOT the
+        // alphabet, and the two are different promises. They diverge as soon as a package
+        // sits at a loadOrder that does not sort with its id, which is the ordinary case:
+        // an overlay absent from `loadorder.json` takes `DEFAULT_LOAD_ORDER` (1000) and
+        // ties with `core-actions`, so it loads SECOND, while a string sort buries it
+        // last. Asserting the alphabet here failed on a machine that merely had a mod
+        // installed (`wiki/decisions/contract-test-scope.md`, second finding).
+        const loadOrder = sortModsForLoad(service.discover().discovered)
+            .map((mod) => mod.manifest.id);
+        expect(mods.map((mod) => mod.id)).toEqual(loadOrder);
+        // The two orders are NOT the same promise, and that is pinned where it can be
+        // pinned deterministically - with a fabricated package whose loadOrder makes them
+        // disagree - in test/contract/officialPackageScope.contract.test.js. Asserting it
+        // here would depend on what this particular machine happens to have installed.
     });
 
     it('reports a live definition count for every kind it reads', () => {
