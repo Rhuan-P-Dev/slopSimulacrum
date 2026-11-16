@@ -35,6 +35,25 @@
  *   23. The search state machine -- switching tabs drops the narrowing typed in
  *       the sub bar (it belonged to the tab being left), and the no-match state
  *       echoes whichever bar actually emptied the section.
+ *   24. The Entities rows (knowledge_viewer.md Sec. 12) -- shapeDefinitions keeps
+ *       the rows it can name and drops the rest, kindGroupLabel pluralizes a
+ *       registry kind into a heading, renderDefinitionBody prints every shape the
+ *       registries use (object, array, scalar), and the tab groups one card per
+ *       definition under its kind.
+ *   25. The family bands (knowledge_viewer.md Sec. 12) -- the bar is drawn from
+ *       the server's `definitionGroups`, and a family's row holds BOTH the codex
+ *       view tabs it names in `sections` and one tab per kind; the view tab ids
+ *       are exactly the panel's own `SECTION_IDS`, so a family can place a view
+ *       but cannot invent one.
+ *   26. The facet links of a definition card -- a facet part naming an entry of
+ *       another registry (the matter a component is made of, the organ it carries)
+ *       renders as a button carrying that target's kind and id, and the jump lands
+ *       on the tab that kind lives on: `referenceTabIdOf` returns the codex view a
+ *       kind belongs to, or the kind's own `def:<kind>` tab, or null when this
+ *       payload has no such tab. The map from kind to view is pinned against the
+ *       server's `CODEX_TAB_OWNED_KINDS` -- the list the server uses to EXCLUDE
+ *       those kinds from the definition tabs -- so a kind cannot lose its
+ *       destination on one side of the wire.
  *
  * @module test/unit/KnowledgePanel
  */
@@ -53,6 +72,12 @@ import {
     renderRecipeRefs,
     renderItemCapabilities,
     renderActionCard,
+    shapeDefinitions,
+    kindGroupLabel,
+    renderDefinitionBody,
+    renderFacetValue,
+    referenceTabIdOf,
+    VIEW_TAB_OF_REFERENCE_KIND,
     KNOWLEDGE_LABELS,
     SECTION_IDS,
     DEFAULT_SECTION,
@@ -60,7 +85,15 @@ import {
     KnowledgePanel,
 } from '../../public/js/KnowledgePanel.js';
 import { DEFAULT_ITEM_VOLUME } from '../../shared/Defaults.js';
+import { REGISTRY_KINDS } from '../../shared/RegistryKinds.js';
 import { filterKnowledge } from '../../public/js/KnowledgeSearch.js';
+// The server's band vocabulary, pinned against the panel's own tab ids below; and
+// the kinds the server keeps OUT of the definition tabs, pinned against the tab
+// this panel sends a facet link to.
+import {
+    CODEX_TAB_SECTION_IDS,
+    CODEX_TAB_OWNED_KINDS,
+} from '../../src/controllers/knowledge/definitionSemantics.js';
 import {
     TRAIT_GROUPS,
     STAT_NAMES,
@@ -1106,8 +1139,12 @@ describe('default section and empty shape', () => {
         expect(() => panel._restoreSearchFocus()).not.toThrow();
     });
 
-    it('SECTION_IDS exposes exactly the five payload sections', () => {
-        expect(Object.values(SECTION_IDS).sort()).toEqual(['actions', 'items', 'materials', 'recipes', 'traitStats']);
+    it('SECTION_IDS exposes the codex\'s own tabs (the kind tabs are not in it)', () => {
+        // `definitions` is a payload section and the search's unit, but no longer a
+        // tab id: the tab ids for it are `def:<kind>`, built from the payload, and
+        // a client that named them here would be naming registries (Sec. 12).
+        expect(Object.values(SECTION_IDS).sort())
+            .toEqual(['actions', 'items', 'materials', 'recipes', 'traitStats']);
     });
 
     it('EMPTY_KNOWLEDGE has the total payload shape (all §3 keys present)', () => {
@@ -1128,6 +1165,8 @@ describe('default section and empty shape', () => {
             recipes: [],
             items: [],
             actions: [],
+            definitions: [],
+            definitionGroups: [],
         });
     });
 
@@ -1136,6 +1175,655 @@ describe('default section and empty shape', () => {
         expect(shapeRecipes(EMPTY_KNOWLEDGE.recipes)).toEqual([]);
         expect(shapeItems(EMPTY_KNOWLEDGE.items)).toEqual([]);
         expect(shapeActions(EMPTY_KNOWLEDGE.actions)).toEqual([]);
+    });
+});
+
+// --- 24. The Entities rows (knowledge_viewer.md Sec. 12) --------------------------------
+
+describe('Entities rows: shapeDefinitions / kindGroupLabel / renderDefinitionBody', () => {
+    const ROW = {
+        kind: 'components', id: 'centralBall', name: 'Central Ball', description: 'The torso.',
+        facets: [{ label: 'volume', value: '10' }], definition: { form: { volume: 10 } },
+    };
+
+    it('keeps the rows it can name and drops the rest', () => {
+        expect(shapeDefinitions(null)).toEqual([]);
+        expect(shapeDefinitions('components')).toEqual([]);
+        expect(shapeDefinitions([null, 7, [], ROW])).toHaveLength(1);
+        // A row with no kind has no group to join; a row with no id has no title.
+        expect(shapeDefinitions([{ ...ROW, kind: '' }])).toEqual([]);
+        expect(shapeDefinitions([{ ...ROW, id: 42 }])).toEqual([]);
+    });
+
+    it('keeps the payload order and normalizes only what is not a string', () => {
+        const rows = shapeDefinitions([ROW, { ...ROW, id: 'tree', name: null, description: '', facets: null }]);
+        expect(rows.map((r) => r.id)).toEqual(['centralBall', 'tree']);
+        // `parts` is null here because this facet names nothing -- a facet of the
+        // real payload carries the sentence as parts, and the next tests pin those.
+        expect(rows[0].facets).toEqual([{ label: 'volume', value: '10', parts: null }]);
+        expect(rows[1].name).toBeNull();
+        expect(rows[1].description).toBeNull();
+        expect(rows[1].facets).toEqual([]);
+    });
+
+    it('treats a definition of 0 or "" as the entry, not as an absent one', () => {
+        expect(shapeDefinitions([{ kind: 'sensitiveParts', id: 'x', definition: 0 }])[0].definition).toBe(0);
+        expect(shapeDefinitions([{ kind: 'sensitiveParts', id: 'x', definition: '' }])[0].definition).toBe('');
+        expect(shapeDefinitions([{ kind: 'sensitiveParts', id: 'x' }])[0].definition).toBeNull();
+    });
+
+    it('keeps a facet pair only when both halves are printable', () => {
+        const [row] = shapeDefinitions([{
+            kind: 'effects', id: 'burning',
+            facets: [
+                { label: 'lasts', value: '3 rounds' }, { label: '', value: 'x' },
+                { label: 'empty', value: '' }, { label: 'number', value: 3 }, null, ['a'],
+            ],
+        }]);
+        expect(row.facets).toEqual([{ label: 'lasts', value: '3 rounds', parts: null }]);
+    });
+
+    it('keeps the parts a facet carries, and calls only a whole part a target', () => {
+        const [row] = shapeDefinitions([{
+            kind: 'components', id: 'head',
+            facets: [{
+                label: 'organs', value: 'Strength Core, burner',
+                parts: [
+                    { text: 'Strength Core', kind: 'internalComponents', id: 'strengthCore' },
+                    { text: ', burner' },
+                    // Half a target is not a destination: no text, no kind, no id.
+                    { text: '', kind: 'materials', id: 'iron' },
+                    { kind: 'materials', id: 'iron' },
+                    { text: 'wood', kind: 'materials' },
+                    { text: 'wood', id: 'wood' },
+                    'not a part', null,
+                ],
+            }],
+        }]);
+        expect(row.facets[0].parts).toEqual([
+            { text: 'Strength Core', kind: 'internalComponents', id: 'strengthCore' },
+            { text: ', burner' },
+            { text: 'wood' },
+            { text: 'wood' },
+        ]);
+    });
+
+    it('kindGroupLabel turns a registry kind into a heading, pluralized', () => {
+        expect(kindGroupLabel('components')).toBe('Components');
+        expect(kindGroupLabel('materialDamageTypes')).toBe('Material Damage Types');
+        expect(kindGroupLabel('sensitiveParts')).toBe('Sensitive Parts');
+        // The acronym the camelCase split cannot get right is spelled out.
+        expect(kindGroupLabel('npcs')).toBe('NPCs');
+        // The `world` registry is one entry (the world's own settings: a name, a
+        // tick rate), so the plural this rule forms -- "Worlds" -- names a thing
+        // this server has exactly one of (knowledge_viewer.md Sec. 12).
+        expect(kindGroupLabel('world')).toBe('World');
+        // Already plural in the data: the heading says the data's word, not "Ruleses".
+        expect(kindGroupLabel('worldRules')).toBe('World Rules');
+        expect(kindGroupLabel('synergy')).toBe('Synergies');
+        expect(kindGroupLabel('box')).toBe('Boxes');
+        expect(kindGroupLabel('')).toBe('');
+    });
+
+    it('renderDefinitionBody prints every shape a registry entry can have', () => {
+        expect(renderDefinitionBody(null)).toBe('');
+        expect(renderDefinitionBody(undefined)).toBe('');
+        // An object body is the key: value listing the other tabs already use.
+        expect(renderDefinitionBody({ volume: 10 })).toContain('knowledge-data-key');
+        expect(renderDefinitionBody({ volume: 10 })).toContain('volume');
+        // A blueprint is an array of ids; a tuple is a part and the slot it hangs on.
+        expect(renderDefinitionBody(['centralBall'])).toContain('centralBall');
+        expect(renderDefinitionBody([['crafterArm', 'left']])).toContain('crafterArm');
+        expect(renderDefinitionBody([['crafterArm', 'left']])).toContain('left');
+        // A sensitive part is a bare number: the number IS the entry, 0 included.
+        expect(renderDefinitionBody(100)).toContain('100');
+        expect(renderDefinitionBody(0)).toContain('0');
+    });
+
+    it('escapes the wire: a definition cannot close the card it is printed in', () => {
+        const html = renderDefinitionBody({ label: '<script>x</script>' });
+        expect(html).not.toContain('<script>');
+        const [row] = shapeDefinitions([
+            { kind: 'a<b', id: 'c">d', name: '<img src=x>', description: null, facets: [], definition: { d: '"><b>' } },
+        ]);
+        const card = new KnowledgePanel()._renderDefinitionCard(row);
+        expect(card).not.toContain('<img');
+        expect(card).not.toContain('<b>');
+        // escapeHtml covers `=` too, so the attribute form cannot survive either.
+        expect(card).toContain('&lt;img src&#61;x&gt;');
+    });
+});
+
+// --- 26. The facet links of a definition card ---------------------------------
+
+describe('renderFacetValue: a facet sentence with the names in it kept as links', () => {
+    it('renders a part-less facet as its plain text, escaped', () => {
+        expect(renderFacetValue({ value: 'Iron x0.7' })).toBe('Iron x0.7');
+        expect(renderFacetValue({ value: '<b>x</b> & "y"' })).not.toContain('<b>');
+        expect(renderFacetValue({ value: '<b>x</b>' })).toBe('&lt;b&gt;x&lt;/b&gt;');
+        expect(renderFacetValue(null)).toBe('');
+        expect(renderFacetValue({})).toBe('');
+    });
+
+    it('renders each named target as a button carrying the target, in order', () => {
+        const html = renderFacetValue({
+            value: 'Iron x0.7, Wood x0.3',
+            parts: [
+                { text: 'Iron', kind: 'materials', id: 'iron' },
+                { text: ' x0.7, ' },
+                { text: 'Wood', kind: 'materials', id: 'wood' },
+                { text: ' x0.3' },
+            ],
+        });
+        expect(html).toBe(
+            '<button type="button" class="knowledge-facet-link" data-ref-kind="materials" ' +
+            'data-ref-id="iron">Iron</button> x0.7, ' +
+            '<button type="button" class="knowledge-facet-link" data-ref-kind="materials" ' +
+            'data-ref-id="wood">Wood</button> x0.3'
+        );
+    });
+
+    it('leaves a half-target as plain text, and escapes every part', () => {
+        expect(renderFacetValue({ value: 'x', parts: [{ text: 'wood', kind: 'materials' }] })).toBe('wood');
+        expect(renderFacetValue({ value: 'x', parts: [{ text: 'wood', id: 'wood' }] })).toBe('wood');
+        const html = renderFacetValue({
+            value: 'x',
+            parts: [{ text: '<img src=x>', kind: 'a"b', id: 'c"d' }],
+        });
+        expect(html).not.toContain('<img');
+        expect(html).toContain('&lt;img src&#61;x&gt;');
+        expect(html).not.toContain('data-ref-id="c"d"');
+    });
+});
+
+describe('referenceTabIdOf: the target decides the tab, and only a tab that exists', () => {
+    /** A payload holding only these definition rows (no `definitionGroups`). */
+    const payloadOf = (definitions) => ({ ...EMPTY_KNOWLEDGE, definitions });
+
+    it('sends a kind to the codex view that renders it', () => {
+        const payload = payloadOf([{ kind: 'components', id: 'head' }]);
+        // Matter lives on the Materials tab, objects on Items, verbs on Crafting,
+        // the two trait tables on Traits & Stats -- the views the server owns.
+        expect(referenceTabIdOf(payload, 'materials')).toBe(SECTION_IDS.MATERIALS);
+        expect(referenceTabIdOf(payload, 'inventoryItems')).toBe(SECTION_IDS.ITEMS);
+        expect(referenceTabIdOf(payload, 'crafting')).toBe(SECTION_IDS.RECIPES);
+        expect(referenceTabIdOf(payload, 'actions')).toBe(SECTION_IDS.ACTIONS);
+        expect(referenceTabIdOf(payload, 'traits')).toBe(SECTION_IDS.TRAITS);
+        expect(referenceTabIdOf(payload, 'propertyTraitMapping')).toBe(SECTION_IDS.TRAITS);
+    });
+
+    it('sends any other kind to that kind\'s own definition tab', () => {
+        const payload = payloadOf([
+            { kind: 'internalComponents', id: 'strengthCore' },
+            { kind: 'rooms', id: 'start' },
+        ]);
+        expect(referenceTabIdOf(payload, 'internalComponents')).toBe('def:internalComponents');
+        expect(referenceTabIdOf(payload, 'rooms')).toBe('def:rooms');
+    });
+
+    it('answers null for a kind this payload has no tab for', () => {
+        // A kind with no rows and no group has no card to land on, so a facet link
+        // naming it must not switch the reader to a screen with nothing on it.
+        const payload = payloadOf([{ kind: 'components', id: 'head' }]);
+        expect(referenceTabIdOf(payload, 'machines')).toBeNull();
+        expect(referenceTabIdOf(payload, 'no_such_kind')).toBeNull();
+        expect(referenceTabIdOf(payload, '')).toBeNull();
+        expect(referenceTabIdOf(payload, null)).toBeNull();
+        expect(referenceTabIdOf(null, 'materials')).toBeNull();
+    });
+
+    it('is the mirror of the server exclusion map, key for key and tab for tab', () => {
+        // The server keeps these kinds OUT of the definition tabs because it renders
+        // them on a codex view of their own, and names that view per kind
+        // (`CODEX_TAB_OWNED_KINDS`). This map is what sends a facet link to it. If
+        // the two drift, a link lands on a tab the server has already removed.
+        const kinds = Object.keys(CODEX_TAB_OWNED_KINDS);
+        expect(Object.keys(VIEW_TAB_OF_REFERENCE_KIND).sort()).toEqual(kinds.slice().sort());
+        const payload = payloadOf([]);
+        for (const kind of kinds) {
+            expect(referenceTabIdOf(payload, kind)).toBe(CODEX_TAB_OWNED_KINDS[kind]);
+        }
+        // And the map sends nothing to a tab outside the panel's own view ids.
+        const sections = Object.values(SECTION_IDS);
+        for (const sectionId of Object.values(VIEW_TAB_OF_REFERENCE_KIND)) {
+            expect(sections).toContain(sectionId);
+        }
+    });
+});
+
+describe('A facet link click: the jump, the search it keeps, the card it lights', () => {
+    /** A payload whose definition rows are exactly these (tabs derive from rows). */
+    const payloadOf = (definitions) => ({ ...EMPTY_KNOWLEDGE, definitions });
+
+    /** A card that records the flash class and the scroll, without a DOM. */
+    function fakeCard(id) {
+        const classes = new Set();
+        return {
+            dataset: { definition: id },
+            classes,
+            scrolls: 0,
+            classList: {
+                add: (name) => classes.add(name),
+                remove: (name) => classes.delete(name),
+                contains: (name) => classes.has(name),
+            },
+            scrollIntoView() { this.scrolls += 1; },
+        };
+    }
+
+    /** A panel wired to a fake content node and a render that only counts. */
+    function wiredPanel(payload, cards) {
+        const panel = new KnowledgePanel();
+        panel._payload = payload;
+        panel._content = { querySelectorAll: () => cards };
+        panel.renders = 0;
+        panel._render = () => { panel.renders += 1; };
+        return panel;
+    }
+
+    it('reads the target off the button, or off anything wrapped in it', () => {
+        const panel = new KnowledgePanel();
+        const button = {
+            dataset: { refKind: 'materials', refId: 'iron' },
+            closest: (sel) => (sel === '.knowledge-facet-link' ? button : null),
+        };
+        expect(panel._facetReferenceForTarget(button)).toEqual({ kind: 'materials', id: 'iron' });
+        // A nested node inside the button resolves through `closest`, like a real click.
+        expect(panel._facetReferenceForTarget({ dataset: {}, closest: button.closest }))
+            .toEqual({ kind: 'materials', id: 'iron' });
+        expect(panel._facetReferenceForTarget({ dataset: {}, closest: () => null })).toBeNull();
+        expect(panel._facetReferenceForTarget(null)).toBeNull();
+        // A link that names no kind or no id is not a target.
+        expect(panel._facetReferenceForTarget({ dataset: {}, closest: (s) => (s ? { dataset: {} } : null) }))
+            .toBeNull();
+    });
+
+    it('opens the tab the kind lives on and lights only the card it named', () => {
+        const organ = fakeCard('strengthCore');
+        const other = fakeCard('burner');
+        const panel = wiredPanel(
+            payloadOf([
+                { kind: 'internalComponents', id: 'strengthCore', name: 'Strength Core' },
+                { kind: 'internalComponents', id: 'burner' },
+            ]),
+            [organ, other],
+        );
+        panel._jumpToDefinitionReference('internalComponents', 'strengthCore');
+        expect(panel._activeSection).toBe('def:internalComponents');
+        expect(panel.renders).toBe(1);
+        expect(organ.classes.has('knowledge-entity-highlight')).toBe(true);
+        expect(organ.scrolls).toBe(1);
+        // The organ the facet did NOT name stays dark: the jump keys on the card's
+        // `data-definition`, not on every card mentioning the target.
+        expect(other.classes.size).toBe(0);
+    });
+
+    it('is a no-op when the payload has no tab for the kind', () => {
+        const panel = wiredPanel(payloadOf([{ kind: 'components', id: 'head' }]), []);
+        const before = panel._activeSection;
+        panel._jumpToDefinitionReference('machines', 'forge');
+        expect(panel._activeSection).toBe(before);
+        expect(panel.renders).toBe(0);
+    });
+
+    it('hands a material, an item or an action to the jump that owns that card', () => {
+        const panel = wiredPanel(payloadOf([{ kind: 'components', id: 'head' }]), []);
+        const delegated = [];
+        for (const method of ['_jumpToMaterial', '_jumpToItem', '_jumpToAction']) {
+            panel[method] = (value) => { delegated.push(`${method}:${value}`); };
+        }
+        // Those three codex views flash their own card families, and their jumps
+        // predate the definition tabs. A facet naming a material, an object or a
+        // verb goes through the door the chip click uses, so the two ways of
+        // reaching one card cannot drift apart -- and no definition card lights up.
+        panel._jumpToDefinitionReference('materials', 'iron');
+        panel._jumpToDefinitionReference('inventoryItems', 'trenchCoat');
+        panel._jumpToDefinitionReference('actions', 'cut');
+        expect(delegated).toEqual([
+            '_jumpToMaterial:iron', '_jumpToItem:trenchCoat', '_jumpToAction:cut',
+        ]);
+    });
+
+    it('flashes a recipe card when the target is a craft', () => {
+        const recipe = fakeCard('circuit-board');
+        recipe.dataset = { recipe: 'circuit-board' };
+        // The owned kinds are never in the definition tabs, so no `def:blueprints`
+        // tab exists to land on (the payload a real client holds looks like this).
+        const panel = wiredPanel(payloadOf([]), [recipe]);
+        // A blueprint is rendered by the Crafting & Items view, whose cards are
+        // recipe cards rather than definition cards, so the flash looks there.
+        panel._jumpToDefinitionReference('crafting', 'circuit-board');
+        expect(panel._activeSection).toBe(SECTION_IDS.RECIPES);
+        expect(recipe.classes.has('knowledge-recipe-highlight')).toBe(true);
+        expect(recipe.scrolls).toBe(1);
+    });
+
+    it('names a blueprint the tab that lists blueprints, not the crafting view', () => {
+        const panel = wiredPanel(payloadOf([{ kind: 'blueprints', id: 'circuit-board' }]), []);
+        // The recipes view shows how things are MADE; a blueprint named by an entry
+        // is a definition of one craft, and the kind tab that lists them is where
+        // its own entry lives (the same distinction the tab bar draws).
+        expect(referenceTabIdOf(panel._payload, 'blueprints')).toBe('def:blueprints');
+        expect(referenceTabIdOf(panel._payload, REGISTRY_KINDS.CRAFTING)).toBe(SECTION_IDS.RECIPES);
+    });
+
+    it('claims no target the other cross-link readers already own', () => {
+        // One delegated listener asks several readers the same click (Sec. 10), so
+        // a facet link must not answer to the material, item or action reader and
+        // vice versa -- two jumps for one click would open a tab and then another.
+        const panel = new KnowledgePanel();
+        const facet = {
+            dataset: { refKind: 'materials', refId: 'iron' },
+            closest: (sel) => (sel === '.knowledge-facet-link' ? facet : null),
+        };
+        const material = {
+            dataset: { material: 'iron' },
+            closest: (sel) => (sel === '.knowledge-material-link' ? material : null),
+        };
+        expect(panel._facetReferenceForTarget(facet)).toEqual({ kind: 'materials', id: 'iron' });
+        expect(panel._materialLinkTypeForTarget(facet)).toBeFalsy();
+        expect(panel._recipeRefTypeForTarget(facet)).toBeFalsy();
+        expect(panel._actionRefNameForTarget(facet)).toBeFalsy();
+        // And the material chip is not a facet link: it names no registry kind.
+        expect(panel._facetReferenceForTarget(material)).toBeNull();
+        expect(panel._materialLinkTypeForTarget(material)).toBe('iron');
+    });
+
+    it('keeps the reader\'s global term when the target survives it, and drops it when not', () => {
+        const payload = payloadOf([{ kind: 'internalComponents', id: 'strengthCore', name: 'Strength Core' }]);
+        const keep = wiredPanel(payload, [fakeCard('strengthCore')]);
+        keep._query = 'Strength Core';
+        keep._refine = 'organ only';
+        keep._jumpToDefinitionReference('internalComponents', 'strengthCore');
+        expect(keep._query).toBe('Strength Core');
+        // The sub bar narrows the tab being left, so it never travels (Sec. 10).
+        expect(keep._refine).toBe('');
+
+        const drop = wiredPanel(payload, [fakeCard('strengthCore')]);
+        drop._query = 'quartz';
+        drop._jumpToDefinitionReference('internalComponents', 'strengthCore');
+        // The term would empty the tab the jump opens, so the jump clears it rather
+        // than landing the reader on a no-match screen (the rule every jump here obeys).
+        expect(drop._query).toBe('');
+    });
+
+    it('a material of a component lands on the Materials tab, named by the same term', () => {
+        const panel = new KnowledgePanel();
+        panel._payload = {
+            ...EMPTY_KNOWLEDGE,
+            traitStats: { groups: {}, mappings: [], materials: [{ type: 'iron', name: 'Iron' }] },
+        };
+        panel._content = { querySelectorAll: () => [fakeCard('iron')] };
+        panel._render = () => {};
+        panel._jumpToDefinitionReference('materials', 'iron');
+        // The Materials view is where matter renders, and the jump the panel already
+        // had for a material is the one taken (the test above pins the delegation).
+        expect(panel._activeSection).toBe(SECTION_IDS.MATERIALS);
+    });
+});
+
+describe('Definition tab rendering (_renderDefinitions)', () => {
+    const ROWS = [
+        {
+            kind: 'components', id: 'centralBall', name: 'Central Ball', description: null,
+            facets: [{ label: 'volume', value: '10' }], definition: { form: { volume: 10 } },
+        },
+        {
+            kind: 'components', id: 'tree', name: null, description: null, facets: [],
+            definition: { form: { volume: 20 } },
+        },
+        {
+            kind: 'rooms', id: 'start_room', name: 'The Entrance Hall', description: 'Where it starts.',
+            facets: [{ label: 'exits', value: 'right_door -> The Eastern Corridor' }],
+            definition: { connections: { right_door: { target: 'right_room' } } },
+        },
+    ];
+    const html = new KnowledgePanel()._renderDefinitions(ROWS);
+
+    it('draws the rows without a family heading: the TAB names the kind', () => {
+        // The flat Entities tab needed a heading per family to separate seventeen
+        // kinds in one scroll; a kind tab is one kind, so the heading would repeat
+        // the tab's own label (wiki/subMDs/frontend/knowledge_viewer.md Sec. 12).
+        expect(html).not.toContain('knowledge-entity-group-title');
+        expect(html).not.toContain('>Components<');
+        expect((html.match(/class="knowledge-entity-group"/g) || [])).toHaveLength(1);
+        // The block is stamped with the kind it shows (the payload's first row),
+        // the attribute a reader of the DOM can still key on.
+        expect(html).toContain('data-kind="components"');
+        expect(html).not.toContain('data-kind="rooms"');
+    });
+
+    it('shows the id next to a name, and as the title when no name exists', () => {
+        expect(html).toContain('Central Ball');
+        // Only the nameless card skips the id line: it titles itself with the id.
+        expect((html.match(/class="knowledge-entity-id"/g) || [])).toHaveLength(ROWS.length - 1);
+        expect(html).toContain('>centralBall<');
+        expect(html).toContain('>tree<');
+    });
+
+    it('renders the description, the facets, and the raw definition collapsed', () => {
+        expect(html).toContain('Where it starts.');
+        expect(html).toContain('knowledge-entity-facet-label');
+        expect(html).toContain('>volume<');
+        expect(html).toContain('right_door -&gt; The Eastern Corridor');
+        // Every card keeps the verbatim entry in the collapsed appendix.
+        expect((html.match(/<details class="knowledge-entity-raw">/g) || [])).toHaveLength(3);
+        expect(html).toContain('right_room');
+    });
+
+    it('renders a linked part as a button naming its target, and a plain part as text', () => {
+        const linked = new KnowledgePanel()._renderDefinitions([{
+            kind: 'components', id: 'head', name: 'Head', description: null,
+            facets: [{
+                label: 'composition', value: 'Iron x1',
+                parts: [{ text: 'Iron ', kind: 'materials', id: 'iron' }, { text: 'x1' }],
+            }, { label: 'weightGrams', value: '450' }],
+            definition: null,
+        }]);
+        // The link carries what the server named -- the target's kind and key --
+        // which is all the client needs to choose a tab. Nothing here names a tab.
+        expect(linked).toContain('data-ref-kind="materials" data-ref-id="iron"');
+        expect(linked).toContain('class="knowledge-facet-link"');
+        // The text around the link, and a facet that links nothing, stay text.
+        expect(linked).toContain('>x1</span>');
+        expect(linked).toContain('>450</span>');
+        // The card carries its own identity: the attribute a jump flashes by.
+        expect(linked).toContain('data-definition="head"');
+    });
+
+    it('escapes a link, because a name is data and a quote is not markup', () => {
+        const linked = new KnowledgePanel()._renderDefinitions([{
+            kind: 'components', id: 'x"<b>', name: null, description: null,
+            facets: [{
+                label: 'organs', value: 'Iron "<script>"',
+                parts: [{ text: 'Iron "<script>"', kind: 'materials', id: 'x"<b>' }],
+            }],
+            definition: null,
+        }]);
+        expect(linked).not.toContain('<script>');
+        expect(linked).toContain('&quot;&lt;script&gt;');
+        expect(linked).toContain('data-ref-id="x&quot;&lt;b&gt;"');
+    });
+
+    it('falls back to the tab\'s empty state, never an error, on nothing to show', () => {
+        const panel = new KnowledgePanel();
+        expect(panel._renderDefinitions([])).toContain(KNOWLEDGE_LABELS.EMPTY_DEFINITION);
+        expect(panel._renderDefinitions(null)).toContain(KNOWLEDGE_LABELS.EMPTY_DEFINITION);
+        expect(panel._renderDefinitions([null, { id: 'no-kind' }])).toContain(KNOWLEDGE_LABELS.EMPTY_DEFINITION);
+    });
+});
+
+describe('Definition tabs: one per registry kind, captioned by family (_tabDefs / _renderTabs)', () => {
+    const TAB_PAYLOAD = {
+        ...EMPTY_KNOWLEDGE,
+        definitions: [
+            { kind: 'components', id: 'centralBall', name: null, description: null, facets: [], definition: {} },
+            { kind: 'sensitiveParts', id: 'brain', name: null, description: null, facets: [], definition: {} },
+            { kind: 'rooms', id: 'start_room', name: null, description: null, facets: [], definition: {} },
+        ],
+        definitionGroups: [
+            {
+                id: 'parts',
+                label: 'Parts',
+                sections: [SECTION_IDS.TRAITS, SECTION_IDS.MATERIALS, SECTION_IDS.ITEMS],
+                kinds: ['components', 'internalComponents', 'sensitiveParts'],
+            },
+            { id: 'blueprints', label: 'Blueprints', sections: [SECTION_IDS.RECIPES], kinds: [] },
+            { id: 'world', label: 'World', sections: [], kinds: ['world', 'rooms', 'worldObjects'] },
+            { id: 'data', label: 'Data', sections: [SECTION_IDS.ACTIONS], kinds: [] },
+        ],
+    };
+    const tabPanel = () => {
+        const panel = new KnowledgePanel();
+        panel._payload = TAB_PAYLOAD;
+        return panel;
+    };
+
+    it('is one tab per kind the map names, in the map order, with a def-prefixed id', () => {
+        const defs = tabPanel()._definitionTabDefs();
+        expect(defs.map((tab) => tab.id)).toEqual([
+            'def:components', 'def:internalComponents', 'def:sensitiveParts',
+            'def:world', 'def:rooms', 'def:worldObjects',
+        ]);
+        // The label is the kind's own words, not the family's.
+        expect(defs.map((tab) => tab.label)).toEqual([
+            'Components', 'Internal Components', 'Sensitive Parts', 'World', 'Rooms', 'World Objects',
+        ]);
+        expect(defs[0].groupLabel).toBe('Parts');
+    });
+
+    it('renders one captioned row per family, its tabs beside the caption', () => {
+        const html = tabPanel()._renderTabs({}, false);
+        expect((html.match(/class="knowledge-tab-family"/g) || [])).toHaveLength(4);
+        for (const family of ['Parts', 'Blueprints', 'World', 'Data']) {
+            expect(html).toContain(`class="knowledge-tab-family-label">${family}</span>`);
+        }
+        // Parts owns its three view tabs and its three kind tabs in one row; only
+        // the kind tabs carry the kind modifier, so a view tab keeps its weight.
+        const partsRow = html.slice(
+            html.indexOf('knowledge-tab-family-label">Parts'),
+            html.indexOf('knowledge-tab-family-label">Blueprints')
+        );
+        expect((partsRow.match(/knowledge-tab--kind/g) || [])).toHaveLength(3);
+        expect(partsRow).toContain(`data-section="${SECTION_IDS.TRAITS}"`);
+        expect(partsRow).toContain(`data-section="${SECTION_IDS.MATERIALS}"`);
+        expect(partsRow).toContain(`data-section="${SECTION_IDS.ITEMS}"`);
+        // A kind tab is clickable by its tab id, and keeps the kind-tab styling.
+        expect(html).toContain('data-section="def:components"');
+        expect(html).toContain('class="knowledge-tab knowledge-tab--kind" data-section="def:rooms"');
+    });
+
+    it('opens a tab for a kind the map does not name (no unreachable definition)', () => {
+        const panel = new KnowledgePanel();
+        panel._payload = {
+            ...TAB_PAYLOAD,
+            definitionGroups: [{ id: 'parts', label: 'Parts', kinds: ['components'] }],
+        };
+        const ids = panel._definitionTabDefs().map((tab) => tab.id);
+        expect(ids).toContain('def:sensitiveParts');
+        expect(ids).toContain('def:rooms');
+        // What the map left out is not left off the bar: it joins the last band,
+        // the position the server uses for ungrouped entries.
+        const html = panel._renderTabs({}, false);
+        expect((html.match(/class="knowledge-tab-family"/g) || [])).toHaveLength(1);
+        expect(html).toContain('data-section="def:sensitiveParts"');
+        expect(html).toContain('data-section="def:rooms"');
+        expect(html).toContain(`data-section="${SECTION_IDS.TRAITS}"`);
+    });
+
+    it('is one flat list in band order: each family its view tabs, then its kinds', () => {
+        // The click guard and the sub-bar label look an id up in this list, so it
+        // must hold both kinds of tab (a section id and a `def:` id).
+        expect(tabPanel()._tabDefs().map((tab) => tab.id)).toEqual([
+            'traitStats', 'materials', 'items',
+            'def:components', 'def:internalComponents', 'def:sensitiveParts',
+            'recipes',
+            'def:world', 'def:rooms', 'def:worldObjects',
+            'actions',
+        ]);
+    });
+
+    it('bands the codex view tabs with the kind tabs of the same family', () => {
+        const bands = tabPanel()._familyBands();
+        expect(bands.map((band) => [band.key, band.label])).toEqual([
+            ['parts', 'Parts'], ['blueprints', 'Blueprints'], ['world', 'World'], ['data', 'Data'],
+        ]);
+        expect(bands.map((band) => band.tabs.map((tab) => tab.id))).toEqual([
+            ['traitStats', 'materials', 'items', 'def:components', 'def:internalComponents', 'def:sensitiveParts'],
+            ['recipes'],
+            ['def:world', 'def:rooms', 'def:worldObjects'],
+            ['actions'],
+        ]);
+        // A view tab keeps its own label; a kind tab is labelled by the kind.
+        expect(bands[0].tabs[0].label).toBe(KNOWLEDGE_LABELS.TAB_TRAITS);
+    });
+
+    it('keeps a view tab no family named, in the last band', () => {
+        const panel = new KnowledgePanel();
+        panel._payload = {
+            ...TAB_PAYLOAD,
+            definitionGroups: [
+                { id: 'parts', label: 'Parts', sections: [SECTION_IDS.ITEMS], kinds: ['components'] },
+                { id: 'data', label: 'Data', sections: [], kinds: [] },
+            ],
+        };
+        // Losing a tab would lose the only way to reach that view, so the bar
+        // places what the map forgot rather than drawing a shorter bar.
+        expect(panel._tabDefs().map((tab) => tab.id)).toEqual([
+            'items', 'def:components',
+            'traitStats', 'recipes', 'materials', 'actions',
+            'def:sensitiveParts', 'def:rooms',
+        ]);
+    });
+
+    it('skips a family naming a view tab this codex does not render', () => {
+        const panel = new KnowledgePanel();
+        panel._payload = {
+            ...TAB_PAYLOAD,
+            definitionGroups: [
+                { id: 'parts', label: 'Parts', sections: ['noSuchView', SECTION_IDS.ITEMS], kinds: [] },
+            ],
+        };
+        const ids = panel._tabDefs().map((tab) => tab.id);
+        expect(ids).not.toContain('noSuchView');
+        expect(ids).toContain('items');
+    });
+
+    it('draws one flat row of the codex tabs when the payload names no family', () => {
+        const panel = new KnowledgePanel();
+        panel._payload = { ...TAB_PAYLOAD, definitionGroups: [] };
+        expect(panel._familyBands()).toEqual([]);
+        expect(panel._tabDefs().map((tab) => tab.id)).toEqual([
+            'traitStats', 'recipes', 'items', 'materials', 'actions',
+        ]);
+        expect(panel._renderTabs({}, false)).toContain('class="knowledge-tabs"');
+    });
+
+    it('agrees with the server on which ids a family may name', () => {
+        // The server places the codex's view tabs in a band by id; the panel owns
+        // the ids and the views. If the two lists disagree, a family is naming a
+        // view that cannot be drawn (or leaving one out of the bar).
+        // The same ids on both sides (the order is the panel's bar order, not a
+        // contract the server has to keep).
+        expect([...CODEX_TAB_SECTION_IDS].sort()).toEqual(Object.values(SECTION_IDS).sort());
+        expect(tabPanel()._coreTabDefs().map((tab) => tab.id).sort())
+            .toEqual([...CODEX_TAB_SECTION_IDS].sort());
+    });
+
+    it('names the sub bar after the open kind', () => {
+        const panel = tabPanel();
+        panel._activeSection = 'def:rooms';
+        expect(panel._activeSectionLabel()).toBe('Rooms');
+        panel._activeSection = 'def:sensitiveParts';
+        expect(panel._activeSectionLabel()).toBe('Sensitive Parts');
+    });
+
+    it('counts a definition tab as a slice of one section, never as extra matches', () => {
+        const panel = new KnowledgePanel();
+        // The global total is the sections'; the per-tab numbers stay available for
+        // the badges (filterKnowledge fills both).
+        expect(panel._totalMatches({ actions: 2, items: 3, definitions: 5, 'def:rooms': 2, 'def:world': 1 }))
+            .toBe(10);
     });
 });
 

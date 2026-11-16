@@ -7,6 +7,9 @@ import {
     countMatches,
     isSearchEmpty,
     targetSurvivesQuery,
+    definitionTabsOf,
+    DEFINITION_TAB_PREFIX,
+    SECTION_ID_LIST,
 } from '../../public/js/KnowledgeSearch.js';
 import { SECTION_IDS } from '../../public/js/KnowledgePanel.js';
 
@@ -73,6 +76,150 @@ describe('KnowledgeSearch — terms', () => {
     });
 });
 
+describe('KnowledgeSearch — the definition rows (knowledge_viewer.md Sec. 12)', () => {
+    const ROWS = [
+        {
+            kind: 'components', id: 'centralBall', name: 'Central Ball',
+            facets: [{ label: 'composition', value: 'Iron x1' }], definition: { form: { volume: 10 } },
+        },
+        {
+            kind: 'rooms', id: 'start_room', name: 'The Entrance Hall',
+            facets: [{ label: 'exits', value: 'right_door -> The Eastern Corridor' }],
+            definition: { connections: { right_door: { target: 'right_room' } } },
+        },
+    ];
+    const withEntities = (query) => filterKnowledge({ ...PAYLOAD, definitions: ROWS }, { query });
+
+    it('filters a row by its id, its name, a facet and a raw field no facet reads', () => {
+        expect(withEntities('centralball').payload.definitions.map((r) => r.id)).toEqual(['centralBall']);
+        expect(withEntities('entrance').payload.definitions.map((r) => r.id)).toEqual(['start_room']);
+        expect(withEntities('iron x1').payload.definitions.map((r) => r.id)).toEqual(['centralBall']);
+        // Nothing displayed spells out `right_room`: only the collapsed appendix carries it.
+        expect(withEntities('right_room').payload.definitions.map((r) => r.id)).toEqual(['start_room']);
+        expect(withEntities('hallway').display.definitions).toBe(0);
+    });
+
+    it('badges the tab with the same rule the tab renders', () => {
+        const filtered = withEntities('hall');
+        expect(filtered.display.definitions).toBe(1);
+        expect(filtered.counts.definitions).toBe(1);
+        expect(filtered.payload.definitions).toHaveLength(1);
+    });
+
+    it('narrows the ACTIVE definition tab, and cannot resurrect what the global query dropped', () => {
+        const payload = { ...PAYLOAD, definitions: ROWS };
+        // The global query 'iron' keeps one definition row (its composition facet)
+        // and the knife item; the sub bar then narrows the open kind tab only.
+        const narrowed = filterKnowledge(payload, {
+            query: 'iron', refine: 'volume', activeSection: `${DEFINITION_TAB_PREFIX}components`,
+        });
+        expect(narrowed.payload.definitions.map((r) => r.id)).toEqual(['centralBall']);
+        expect(narrowed.counts.definitions).toBe(1);
+        // A refine term is a second term over what the first found, never a rescue.
+        const emptied = filterKnowledge(payload, {
+            query: 'iron', refine: 'entrance', activeSection: `${DEFINITION_TAB_PREFIX}components`,
+        });
+        expect(emptied.payload.definitions).toEqual([]);
+        expect(emptied.counts.definitions).toBe(1);
+        // The other tabs are the global query's, untouched by this tab's narrowing.
+        expect(emptied.payload.items.map((i) => i.type)).toEqual(['knife']);
+    });
+
+    it('counts an absent section as zero rather than failing', () => {
+        expect(filterKnowledge(PAYLOAD, { query: 'knife' }).display.definitions).toBe(0);
+    });
+
+    it('searches the kind a facet link names, not only the sentence it prints', () => {
+        // A facet part that links carries the target's kind and id; the row is
+        // searched as its dump, so the link is findable text rather than markup the
+        // reader can never reach. `value` alone would not contain the kind.
+        const linked = {
+            ...PAYLOAD,
+            definitions: [{
+                kind: 'components', id: 'head', name: 'Head',
+                facets: [{
+                    label: 'organs', value: 'Strength Core',
+                    parts: [{ text: 'Strength Core', kind: 'internalComponents', id: 'strengthCore' }],
+                }],
+                definition: null,
+            }],
+        };
+        expect(filterKnowledge(linked, { query: 'internalcomponents' }).payload.definitions)
+            .toHaveLength(1);
+        expect(filterKnowledge(linked, { query: 'strengthcore' }).payload.definitions)
+            .toHaveLength(1);
+    });
+
+    it('scopes the rendered list to the open kind, leaving the badges per kind', () => {
+        const payload = { ...PAYLOAD, definitions: ROWS };
+        const opened = filterKnowledge(payload, { query: 'a', activeSection: `${DEFINITION_TAB_PREFIX}rooms` });
+        // 'a' matches both rows, but the Rooms tab shows only the room.
+        expect(opened.payload.definitions.map((r) => r.id)).toEqual(['start_room']);
+        expect(opened.counts.definitions).toBe(2);
+        // The per-kind numbers the badges read (the flat section count is the
+        // list's, not the open tab's).
+        expect(opened.counts['def:components']).toBe(1);
+        expect(opened.counts['def:rooms']).toBe(1);
+        expect(opened.display['def:rooms']).toBe(1);
+    });
+
+    it('leaves the whole list in place when the open tab is not a definition tab', () => {
+        const payload = { ...PAYLOAD, definitions: ROWS };
+        const filtered = filterKnowledge(payload, { query: 'a', activeSection: SECTION_IDS.ITEMS });
+        expect(filtered.payload.definitions).toHaveLength(2);
+        expect(filtered.counts['def:components']).toBe(1);
+    });
+
+    it('gives a badge to a kind the map names even when no row of it survives', () => {
+        const payload = {
+            ...PAYLOAD,
+            definitions: ROWS,
+            definitionGroups: [{ id: 'parts', label: 'Parts', kinds: ['components', 'internalComponents'] }],
+        };
+        const filtered = filterKnowledge(payload, { query: 'entrance' });
+        expect(filtered.counts['def:internalComponents']).toBe(0);
+        expect(filtered.counts['def:components']).toBe(0);
+        expect(filtered.counts['def:rooms']).toBe(1);
+    });
+});
+
+describe('KnowledgeSearch — definitionTabsOf (the tab bar the payload describes)', () => {
+    it('is one tab per kind the map names, in the map order', () => {
+        expect(definitionTabsOf({
+            definitionGroups: [
+                { id: 'parts', label: 'Parts', kinds: ['components', 'sensitiveParts'] },
+                { id: 'world', label: 'World', kinds: ['rooms'] },
+            ],
+        })).toEqual([
+            { id: 'def:components', kind: 'components', groupId: 'parts', groupLabel: 'Parts' },
+            { id: 'def:sensitiveParts', kind: 'sensitiveParts', groupId: 'parts', groupLabel: 'Parts' },
+            { id: 'def:rooms', kind: 'rooms', groupId: 'world', groupLabel: 'World' },
+        ]);
+    });
+
+    it('opens a tab for a kind the map missed, once, and never repeats one', () => {
+        const tabs = definitionTabsOf({
+            definitionGroups: [{ id: 'parts', label: 'Parts', kinds: ['components', 'components'] }],
+            definitions: [
+                { kind: 'components', id: 'a' },
+                { kind: 'npcs', id: 'smallBallDroid' },
+                { kind: 'npcs', id: 'human' },
+                { kind: 7, id: 'no-kind' },
+            ],
+        });
+        expect(tabs.map((tab) => tab.id)).toEqual(['def:components', 'def:npcs']);
+        expect(tabs[1]).toEqual({ id: 'def:npcs', kind: 'npcs', groupId: '', groupLabel: '' });
+    });
+
+    it('yields no tab for a payload without a map or rows, and survives junk', () => {
+        expect(definitionTabsOf(undefined)).toEqual([]);
+        expect(definitionTabsOf(null)).toEqual([]);
+        expect(definitionTabsOf('nope')).toEqual([]);
+        expect(definitionTabsOf([])).toEqual([]);
+        expect(definitionTabsOf({ definitionGroups: [null, 7, { kinds: 'nope' }] })).toEqual([]);
+    });
+});
+
 describe('KnowledgeSearch — the global bar', () => {
     it('filters items, recipes and actions by anything they carry', () => {
         const { display } = filterKnowledge(PAYLOAD, { query: 'knife' });
@@ -96,7 +243,10 @@ describe('KnowledgeSearch — the global bar', () => {
 
     it('returns every section id the tab bar uses, so a tab can never be unsearchable', () => {
         const counts = filterKnowledge(PAYLOAD, { query: 'zzz' }).counts;
-        expect(Object.keys(counts).sort()).toEqual([...Object.values(SECTION_IDS)].sort());
+        // SECTION_ID_LIST is the search's own unit list: the codex's tabs plus the
+        // flat `definitions` section every kind tab windows onto. A payload with
+        // definition rows adds one key per kind tab (pinned in the describe above).
+        expect(Object.keys(counts).sort()).toEqual([...SECTION_ID_LIST].sort());
     });
 
     it('counts materials and the traits units (mapping rows plus stat cells)', () => {
@@ -194,6 +344,28 @@ describe('KnowledgeSearch — a jump into a filtered result', () => {
         expect(targetSurvivesQuery(PAYLOAD, SECTION_IDS.ITEMS, '', 'anything')).toBe(true);
         // The search gives up its opinion rather than deleting a term on a guess.
         expect(targetSurvivesQuery(PAYLOAD, SECTION_IDS.ITEMS, 'knife', 'not-in-the-world')).toBe(true);
+    });
+
+    it('checks a definition tab like any other, because a facet link lands there', () => {
+        const withDefs = {
+            ...PAYLOAD,
+            definitions: [
+                { kind: 'internalComponents', id: 'strengthCore', name: 'Strength Core' },
+                { kind: 'components', id: 'head', name: 'Head' },
+            ],
+        };
+        const organTab = `${DEFINITION_TAB_PREFIX}internalComponents`;
+        expect(targetSurvivesQuery(withDefs, organTab, 'strength', 'strengthCore')).toBe(true);
+        // The term would empty the tab the jump opens: it is cleared, not carried
+        // onto a no-match screen while the card the reader clicked sits unshown.
+        expect(targetSurvivesQuery(withDefs, organTab, 'quartz', 'strengthCore')).toBe(false);
+        // Only this tab's kind counts: `head` is a row of the payload and not of
+        // this tab, so it cannot vouch for a target the tab does not hold.
+        expect(targetSurvivesQuery(withDefs, organTab, 'head', 'strengthCore')).toBe(false);
+        expect(targetSurvivesQuery(withDefs, `${DEFINITION_TAB_PREFIX}components`, 'head', 'head')).toBe(true);
+        // A kind with no tab and no rows still cannot make a term disappear.
+        expect(targetSurvivesQuery(withDefs, `${DEFINITION_TAB_PREFIX}machines`, 'strength', 'forge')).toBe(true);
+        expect(targetSurvivesQuery(PAYLOAD, organTab, 'strength', 'strengthCore')).toBe(true);
     });
 });
 

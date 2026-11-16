@@ -1,8 +1,8 @@
 /**
  * KnowledgePanel
  * Client-side Knowledge overlay panel (wiki/subMDs/frontend/knowledge_viewer.md): a
- * read-only reference codex of the game's static data files. Four sub-tabs
- * share one content area:
+ * read-only reference codex of the game's static data files. The tabs share one
+ * content area:
  *   1. "Traits & Stats" — the material-property → trait → stat derivation
  *      chain: the global trait molds, the property-to-stat mapping table,
  *      and the cross-layer pinned vocabulary.
@@ -19,6 +19,25 @@
  *      the renderer's visual (look) block when the material declares one.
  *      Clicking a material cross-link opens this tab, scrolls to the card and
  *      flashes its highlight.
+ *   5. "Actions" — every action definition and the stat gate that governs it.
+ *   6. The definition tabs — ONE PER REGISTRY KIND (Components, Rooms, World
+ *      Rules, ...), captioned by the family the server groups them under (Parts,
+ *      Blueprints, World, Characters, Data). They render the flat `definitions`
+ *      list as a window per kind; the grouping is the server's, never a table
+ *      maintained here (wiki/subMDs/frontend/knowledge_viewer.md Sec. 12).
+ *
+ * A FACET LINK IN A DEFINITION CARD CARRIES A TARGET, NOT A TAB. Where a facet
+ * names an entry of another registry — the matter a component is made of, the
+ * organ it carries, the room a machine runs in — the server sends that name as a
+ * `part` carrying the target's registry `kind` and `id` (`definitionSemantics.js`);
+ * this module decides where it lands. `referenceTabIdOf` maps a kind to the view
+ * tab that kind owns (matter → Materials, items → Items, verbs → Crafting & Items,
+ * the trait tables → Traits & Stats) or to that kind's own definition tab
+ * (`def:internalComponents` for an organ). The jump then follows the rules every
+ * other jump here follows: the sub bar clears, the global term survives when the
+ * target can survive it (`targetSurvivesQuery`), the card scrolls into view and
+ * flashes. A kind the payload has no tab for is a no-op — a link never moves the
+ * reader to an empty screen.
  *
  * Data flow (wiki/subMDs/frontend/knowledge_viewer.md): the payload is fetched
  * ONCE per session from GET /knowledge and cached — the data is immutable
@@ -50,7 +69,15 @@ import {
     EXISTENCE_USABLE_MIN,
 } from '../../shared/StatVocabulary.js';
 import { DEFAULT_ITEM_VOLUME } from '../../shared/Defaults.js';
-import { filterKnowledge, isSearchEmpty, targetSurvivesQuery } from './KnowledgeSearch.js';
+import { REGISTRY_KINDS } from '../../shared/RegistryKinds.js';
+import {
+    filterKnowledge,
+    isSearchEmpty,
+    targetSurvivesQuery,
+    definitionGroupsOf,
+    definitionTabsOf,
+    DEFINITION_TAB_PREFIX,
+} from './KnowledgeSearch.js';
 
 // =============================================================================
 // Presentation constants (wiki/subMDs/frontend/knowledge_viewer.md)
@@ -135,6 +162,11 @@ export const KNOWLEDGE_LABELS = {
     EMPTY_MATERIALS: 'No materials defined',
     /** Actions section empty state. */
     EMPTY_ACTIONS: 'No actions defined',
+    /**
+     * Definition tab empty state: the kind is a real registry, this server simply
+     * has nothing in it (a mod removed the entries, a world has no props yet).
+     */
+    EMPTY_DEFINITION: 'Nothing defined in this registry',
 };
 
 /** Section block titles (wiki/subMDs/frontend/knowledge_viewer.md block names). */
@@ -205,7 +237,7 @@ const CAPABILITY_UI_LABELS = {
 // =============================================================================
 
 /**
- * The four sub-tab section ids. Tab buttons carry these in their
+ * The six sub-tab section ids. Tab buttons carry these in their
  * `data-section` attribute; lookups compare against these constants
  * (dataset comparison, never selector interpolation). MATERIALS has no
  * top-level payload section of its own — it renders the materials block of
@@ -249,6 +281,10 @@ export const EMPTY_KNOWLEDGE = {
     recipes: [],
     items: [],
     actions: [],
+    definitions: [],
+    // No families known before the payload arrives — the client holds no family
+    // table of its own (the grouping is the server's authority, Sec. 12).
+    definitionGroups: [],
 };
 
 // =============================================================================
@@ -1123,6 +1159,220 @@ function shapeTraitMap(raw) {
  * The Knowledge overlay panel. Registered with the OverlayManager as
  * `overlayManager.register('knowledge', panel, 'btn-knowledge')`.
  */
+/**
+ * The body of a raw definition block, whatever shape the author used. The
+ * definition rows carry an entry VERBATIM, and the registries use every shape the
+ * data format allows: a keyed object (`components`), an array of child ids
+ * (`blueprints`), an array of wear claims (`outfits`), or a bare number
+ * (`sensitiveParts`). `renderDefinitionListing` walks an object and returns
+ * nothing for the rest, so the two other shapes get their own body here — the
+ * reference never drops an entry because its shape is unusual.
+ * @param {*} definition - The row's raw definition (object, array or scalar).
+ * @returns {string} HTML (empty string when there is nothing to list).
+ * @public
+ */
+export function renderDefinitionBody(definition) {
+    if (definition === null || definition === undefined) return '';
+    if (Array.isArray(definition)) {
+        return definition.map((element) => renderArrayElement(element, 1)).join('');
+    }
+    if (typeof definition === 'object') {
+        return renderDefinitionListing(definition);
+    }
+    return `<div class="knowledge-data-row knowledge-entity-value">` +
+        `<span class="knowledge-data-value">${escapeHtml(String(definition))}</span></div>`;
+}
+
+/**
+ * The label of a kind tab. A registry kind is a machine identifier
+ * (`materialDamageTypes`); the label is its own words, pluralized — not a
+ * hand-written table, so a kind a mod adds appears with a readable tab and
+ * nothing is ever hidden for want of a label. `npcs` is the one acronym the
+ * camelCase split cannot get right, so it is spelled out.
+ * @param {string} kind - The raw registry kind (the payload's word for it).
+ * @returns {string} The tab label.
+ * @public
+ */
+export function kindGroupLabel(kind) {
+    // The one exception, and it is a fact about the data rather than about words:
+    // the `world` registry holds the world's own settings (one entry, id `world`,
+    // a name and a tick rate). The plural the rule below forms — "Worlds" — names
+    // a thing this server has exactly one of.
+    if (kind === REGISTRY_KINDS.WORLD) return 'World';
+    const words = String(kind ?? '')
+        .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+        .split(' ')
+        .filter((word) => word.length > 0);
+    if (words.length === 0) return String(kind ?? '');
+    words[0] = words[0].charAt(0).toUpperCase() + words[0].slice(1);
+    if (words[0] === 'Npcs') words[0] = 'NPCs';
+    if (words[0] === 'Npc') words[0] = 'NPC';
+    const last = words.length - 1;
+    words[last] = pluralizeKind(words[last]);
+    return words.join(' ');
+}
+
+/**
+ * One word's plural, by ending. A word already ending in "s" is left as the
+ * author wrote it (`worldRules` is plural in the data, and adding another "es"
+ * would be a word the data never used).
+ * @param {string} word
+ * @returns {string}
+ * @private
+ */
+function pluralizeKind(word) {
+    if (word.length === 0) return word;
+    if (/s$/.test(word)) return word;
+    if (/[^aeiou]y$/.test(word)) return `${word.slice(0, -1)}ies`;
+    if (/(x|ch|sh|z)$/.test(word)) return `${word}es`;
+    return `${word}s`;
+}
+
+/**
+ * Read the `definitions` array of the payload (the definition rows). Tolerant of
+ * anything the wire is not: a non-array becomes [], a row that is not an object
+ * or carries no `kind`/`id` is skipped rather than guessed at (a row this reader
+ * cannot name is a row it must not render).
+ * @param {*} raw - The raw `definitions` section.
+ * @returns {Array<{kind: string, id: string, name: string|null,
+ *   description: string|null,
+ *   facets: Array<{label: string, value: string, parts: Array<Object>|null}>,
+ *   definition: *}>} Rows in payload order (the server sorts them).
+ * @public
+ */
+export function shapeDefinitions(raw) {
+    if (!Array.isArray(raw)) return [];
+    const rows = [];
+    for (const row of raw) {
+        if (!row || typeof row !== 'object' || Array.isArray(row)) continue;
+        if (typeof row.kind !== 'string' || row.kind.length === 0) continue;
+        if (typeof row.id !== 'string' || row.id.length === 0) continue;
+        rows.push({
+            kind: row.kind,
+            id: row.id,
+            name: typeof row.name === 'string' && row.name.length > 0 ? row.name : null,
+            description: typeof row.description === 'string' && row.description.length > 0
+                ? row.description
+                : null,
+            facets: shapeEntityFacets(row.facets),
+            // NOT `|| null`: a defined scalar (0, '') is the entry, not an absent one.
+            definition: row.definition === undefined ? null : row.definition,
+        });
+    }
+    return rows;
+}
+
+/**
+ * The facet pairs of one definition row: a label, the sentence to print, and the
+ * `parts` that sentence is built from when any of its names points at another
+ * registry. The reading itself is server-side (`definitionSemantics.js`); this
+ * reader only keeps what it can print.
+ * @param {*} raw - The row's raw `facets` array.
+ * @returns {Array<{label: string, value: string, parts: Array<Object>|null}>}
+ * @private
+ */
+function shapeEntityFacets(raw) {
+    if (!Array.isArray(raw)) return [];
+    const facets = [];
+    for (const facet of raw) {
+        if (!facet || typeof facet !== 'object' || Array.isArray(facet)) continue;
+        if (typeof facet.label !== 'string' || facet.label.length === 0) continue;
+        if (typeof facet.value !== 'string' || facet.value.length === 0) continue;
+        facets.push({ label: facet.label, value: facet.value, parts: facetPartsOf(facet.parts) });
+    }
+    return facets;
+}
+
+/**
+ * The parts of one facet sentence, or null when the facet carries none (an older
+ * or degraded payload still renders as plain text). A part is kept only if it has
+ * text; a target is kept only if it names BOTH a kind and an id — half a target
+ * is not a destination, and renders as text.
+ *
+ * A target part adds the kind word to the row's searchable text (the search
+ * serialises the whole row, `KnowledgeSearch.searchTextOf`) — the same rule the
+ * collapsed raw appendix has always followed.
+ * @param {*} raw - The facet's raw `parts` array.
+ * @returns {Array<{text: string, kind?: string, id?: string}>|null}
+ * @private
+ */
+function facetPartsOf(raw) {
+    if (!Array.isArray(raw)) return null;
+    const parts = [];
+    for (const part of raw) {
+        if (!part || typeof part !== 'object' || Array.isArray(part)) continue;
+        if (typeof part.text !== 'string' || part.text.length === 0) continue;
+        const kind = typeof part.kind === 'string' && part.kind.length > 0 ? part.kind : null;
+        const id = typeof part.id === 'string' && part.id.length > 0 ? part.id : null;
+        parts.push(kind !== null && id !== null ? { text: part.text, kind, id } : { text: part.text });
+    }
+    return parts.length > 0 ? parts : null;
+}
+
+/**
+ * The codex views that OWN a registry kind — the kinds rendered on a tab of their
+ * own rather than on a `def:<kind>` tab. It is the mirror of the server's
+ * `CODEX_TAB_OWNED_KINDS`, which names the same kinds to EXCLUDE them from the
+ * definition tabs (`definitionSemantics.js`); `test/unit/KnowledgePanel.test.js`
+ * pins the two against each other, so a kind cannot be excluded by the server and
+ * left without a destination here. Every value is a `SECTION_IDS` value of the
+ * codex view set (`KnowledgeSearch.test.js` keeps those section ids searchable).
+ */
+export const VIEW_TAB_OF_REFERENCE_KIND = Object.freeze({
+    [REGISTRY_KINDS.MATERIALS]: SECTION_IDS.MATERIALS,
+    [REGISTRY_KINDS.INVENTORY_ITEMS]: SECTION_IDS.ITEMS,
+    [REGISTRY_KINDS.CRAFTING]: SECTION_IDS.RECIPES,
+    [REGISTRY_KINDS.ACTIONS]: SECTION_IDS.ACTIONS,
+    [REGISTRY_KINDS.TRAITS]: SECTION_IDS.TRAITS,
+    [REGISTRY_KINDS.PROPERTY_TRAIT_MAPPING]: SECTION_IDS.TRAITS,
+});
+
+/**
+ * Which tab the entries of a referenced registry kind are rendered on: the codex
+ * view that owns it, or that kind's own definition tab — but only when the
+ * payload actually has that tab. Returning null is an honest answer (no tab, no
+ * jump), and it is what keeps a facet link from switching the reader to a screen
+ * with nothing on it.
+ * @param {Object|null} payload - The unwrapped knowledge payload.
+ * @param {string} kind - The registry kind a facet part points at.
+ * @returns {string|null} A tab id (`SECTION_IDS` value or `def:<kind>`).
+ * @public
+ */
+export function referenceTabIdOf(payload, kind) {
+    if (typeof kind !== 'string' || kind.length === 0 || !payload || typeof payload !== 'object') {
+        return null;
+    }
+    const view = Object.hasOwn(VIEW_TAB_OF_REFERENCE_KIND, kind)
+        ? VIEW_TAB_OF_REFERENCE_KIND[kind]
+        : null;
+    if (view !== null) return view;
+    const tabId = `${DEFINITION_TAB_PREFIX}${kind}`;
+    return definitionTabsOf(payload).some((tab) => tab.id === tabId) ? tabId : null;
+}
+
+/**
+ * The value cell of one facet: its parts rendered in order — plain text, and each
+ * named target as a button carrying the target's kind and id
+ * (`.knowledge-facet-link`, `data-ref-kind` / `data-ref-id`). With no parts the
+ * cell is the facet's plain text, exactly as a link-free reader would print it.
+ * @param {{value: string, parts?: Array<{text: string, kind?: string, id?: string}>}} facet
+ * @returns {string} HTML (everything escaped, including the plain text).
+ * @public
+ */
+export function renderFacetValue(facet) {
+    if (!facet || typeof facet !== 'object') return '';
+    if (!Array.isArray(facet.parts)) return escapeHtml(String(facet.value ?? ''));
+    const cells = facet.parts.map((part) => {
+        const text = escapeHtml(String(part && typeof part.text === 'string' ? part.text : ''));
+        const kind = part && typeof part.kind === 'string' ? part.kind : null;
+        const id = part && typeof part.id === 'string' ? part.id : null;
+        if (text === '' || kind === null || id === null || kind === '' || id === '') return text;
+        return `<button type="button" class="knowledge-facet-link" ` +
+            `data-ref-kind="${escapeHtml(kind)}" data-ref-id="${escapeHtml(id)}">${text}</button>`;
+    });
+    return cells.join('');
+}
+
 export class KnowledgePanel {
     /**
      * Creates the panel. No DOM access in the constructor (constructible in
@@ -1194,7 +1444,8 @@ export class KnowledgePanel {
         // listener on the content container (event delegation) survives every
         // innerHTML replacement and never needs re-wiring. A material cross-link
         // (an item's materials field / a material visual block) jumps to the
-        // Materials tab; a recipe item ref jumps to the Items tab.
+        // Materials tab; a recipe item ref jumps to the Items tab; a facet link in
+        // a definition card jumps to whichever tab the target's kind lives on.
         this._content.addEventListener('click', (event) => {
             // The clear buttons are checked before any cross-link: a chip or link
             // check on them would return nothing, but ordering states the intent.
@@ -1207,6 +1458,13 @@ export class KnowledgePanel {
             const actionName = this._actionRefNameForTarget(event.target);
             if (actionName) {
                 this._jumpToAction(actionName);
+                return;
+            }
+            // A facet link names a registry kind, not a type, so it resolves on its
+            // own attributes and never collides with the item/material links below.
+            const reference = this._facetReferenceForTarget(event.target);
+            if (reference) {
+                this._jumpToDefinitionReference(reference.kind, reference.id);
                 return;
             }
             const materialType = this._materialLinkTypeForTarget(event.target);
@@ -1352,11 +1610,69 @@ export class KnowledgePanel {
     }
 
     /**
-     * The five tab definitions, in bar order.
+     * Every tab of the bar, flattened: the codex's own tabs first, then one tab
+     * per registry kind. The flat list is what the click guard and the sub-bar
+     * label look an id up in; `_renderTabs` draws the same list as captioned rows.
      * @returns {Array<{id: string, label: string}>}
      * @private
      */
     _tabDefs() {
+        const bands = this._familyBands();
+        // No family map (a payload from before the bar was grouped): the codex's
+        // own tabs alone, in their old flat order.
+        if (bands.length === 0) return this._coreTabDefs();
+        return bands.flatMap((band) => band.tabs);
+    }
+
+    /**
+     * The bar as family bands, in the order the server sent them: the codex's own
+     * view tabs a family names come first (a view of the matter before the lists
+     * of that matter), then one tab per registry kind of the family. The client
+     * invents no grouping of its own — it draws what `definitionGroups` says —
+     * with two guards, because a tab the bar loses is the only way to reach a
+     * view: a family naming a tab this codex does not render is skipped, and what
+     * the map left out joins the LAST band.
+     * @returns {Array<{key: string, label: string, tabs: Array<object>}>} empty
+     *   when the payload names no family
+     * @private
+     */
+    _familyBands() {
+        const groups = definitionGroupsOf(this._payload);
+        if (groups.length === 0) return [];
+        const coreTabs = this._coreTabDefs();
+        const kindTabs = this._definitionTabDefs();
+        const placed = new Set();
+        const bands = [];
+        for (const group of groups) {
+            const tabs = [];
+            for (const id of Array.isArray(group.sections) ? group.sections : []) {
+                const tab = coreTabs.find((candidate) => candidate.id === id);
+                // A family cannot show a view it has no tab for, and a payload
+                // that placed one twice gets it drawn once.
+                if (!tab || placed.has(id)) continue;
+                placed.add(id);
+                tabs.push(tab);
+            }
+            for (const tab of kindTabs) {
+                if (tab.groupId === group.id) tabs.push(tab);
+            }
+            bands.push({ key: group.id, label: group.label, tabs });
+        }
+        // Completeness outranks tidiness on both sides of a band: a view tab no
+        // family named and a kind the map has not caught up with (a row with no
+        // entry) both land in the LAST band, which is where the server appends
+        // what the family table left out. A tab the bar drops is unreachable.
+        const known = new Set(groups.map((group) => group.id));
+        const forgotten = coreTabs.filter((tab) => !placed.has(tab.id));
+        const orphans = kindTabs.filter((tab) => !known.has(tab.groupId));
+        if (forgotten.length || orphans.length) {
+            bands[bands.length - 1].tabs.push(...forgotten, ...orphans);
+        }
+        return bands;
+    }
+
+    /** The codex's own tabs, in bar order. @private */
+    _coreTabDefs() {
         return [
             { id: SECTION_IDS.TRAITS, label: KNOWLEDGE_LABELS.TAB_TRAITS },
             { id: SECTION_IDS.RECIPES, label: KNOWLEDGE_LABELS.TAB_CRAFTING },
@@ -1367,8 +1683,29 @@ export class KnowledgePanel {
     }
 
     /**
-     * The five sub-tab buttons, active state from _activeSection. While a search
-     * is active each carries its own match count, so the reader sees where the
+     * The definition tabs, in the family order the server sent: one per registry
+     * kind, labelled by the kind's own words (`kindGroupLabel`), so a kind a mod
+     * adds appears with a readable tab and no label table to maintain here. A tab
+     * exists because the registry kind exists — an empty kind is still a tab, and
+     * says so with its own empty state.
+     * @returns {Array<{id: string, label: string, groupId: string, groupLabel: string}>}
+     * @private
+     */
+    _definitionTabDefs() {
+        return definitionTabsOf(this._payload).map((tab) => ({
+            id: tab.id,
+            label: kindGroupLabel(tab.kind),
+            groupId: tab.groupId,
+            groupLabel: tab.groupLabel,
+        }));
+    }
+
+    /**
+     * The tab bar: one row per family, each row the tabs of that family — the
+     * codex's view tabs and its kind tabs together (`Traits & Stats | Materials
+     * | Items | Components | ...` under `Parts`) — with the family's caption
+     * beside it. Active state comes from _activeSection, and while a search is
+     * active every tab carries its own match count, so the reader sees where the
      * hits are before switching (the count is the GLOBAL term's, never the sub
      * bar's — the badge describes the search, not one tab's narrowing of it).
      * @param {Object<string, number>} counts - Global per-section matches.
@@ -1377,15 +1714,55 @@ export class KnowledgePanel {
      * @private
      */
     _renderTabs(counts, querying) {
-        const buttons = this._tabDefs().map((tab) => {
-            const activeClass = tab.id === this._activeSection ? ' knowledge-tab--active' : '';
-            const badge = querying
-                ? `<span class="knowledge-tab-count">${counts[tab.id] ?? 0}</span>`
-                : '';
-            return `<button type="button" class="knowledge-tab${activeClass}" data-section="${escapeHtml(tab.id)}">` +
-                `${escapeHtml(tab.label)}${badge}</button>`;
-        }).join('');
-        return `<div class="knowledge-tabs">${buttons}</div>`;
+        const bands = this._familyBands();
+        if (bands.length === 0) {
+            return `<div class="knowledge-tabs">${this._coreTabDefs()
+                .map((tab) => this._renderTabButton(tab, counts, querying))
+                .join('')}</div>`;
+        }
+        // A band whose tabs the payload named nowhere draws no caption, so the bar
+        // never shows an empty row. The bar is drawn in the order it was given,
+        // never re-sorted.
+        return bands
+            .filter((band) => band.tabs.length > 0)
+            .map((band) => {
+                const caption = band.label === ''
+                    ? ''
+                    : `<span class="knowledge-tab-family-label">${escapeHtml(band.label)}</span>`;
+                const buttons = band.tabs
+                    .map((tab) => this._renderTabButton(
+                        tab,
+                        counts,
+                        querying,
+                        // The kind tabs read as a row of lists; a view tab keeps
+                        // the weight of the tab it has always had.
+                        String(tab.id).startsWith(DEFINITION_TAB_PREFIX) ? ' knowledge-tab--kind' : ''
+                    ))
+                    .join('');
+                return `<div class="knowledge-tab-family">${caption}` +
+                    `<div class="knowledge-tab-family-tabs">${buttons}</div></div>`;
+            })
+            .join('');
+    }
+
+    /**
+     * One tab button. The id goes into `data-section` (dataset comparison on
+     * click, never selector interpolation), and the badge is that tab's count of
+     * the GLOBAL term.
+     * @param {{id: string, label: string}} tab
+     * @param {Object<string, number>} counts
+     * @param {boolean} querying
+     * @param {string} [extraClass] - The kind tabs get ` knowledge-tab--kind`.
+     * @returns {string} HTML.
+     * @private
+     */
+    _renderTabButton(tab, counts, querying, extraClass = '') {
+        const activeClass = tab.id === this._activeSection ? ' knowledge-tab--active' : '';
+        const badge = querying
+            ? `<span class="knowledge-tab-count">${counts[tab.id] ?? 0}</span>`
+            : '';
+        return `<button type="button" class="knowledge-tab${extraClass}${activeClass}" ` +
+            `data-section="${escapeHtml(tab.id)}">${escapeHtml(tab.label)}${badge}</button>`;
     }
 
     /**
@@ -1447,10 +1824,18 @@ export class KnowledgePanel {
             `</div>`;
     }
 
-    /** Sum of the per-section matches (the global result). @private */
+    /**
+     * Sum of the per-SECTION matches (the global result). A definition tab's
+     * count is a slice of the `definitions` section, so adding the tab counts to
+     * the section's own would show the same row twice.
+     * @private
+     */
     _totalMatches(counts) {
         let total = 0;
-        for (const count of Object.values(counts)) total += count;
+        for (const [id, count] of Object.entries(counts)) {
+            if (id.startsWith(DEFINITION_TAB_PREFIX)) continue;
+            total += count;
+        }
         return total;
     }
 
@@ -1563,7 +1948,7 @@ export class KnowledgePanel {
     _bindTabs() {
         if (!this._content) return;
         const tabs = this._content.querySelectorAll('.knowledge-tab');
-        const known = Object.values(SECTION_IDS);
+        const known = this._tabDefs().map((tab) => tab.id);
         for (const tab of tabs) {
             tab.addEventListener('click', () => {
                 const section = tab.dataset.section;
@@ -1605,6 +1990,11 @@ export class KnowledgePanel {
             : null;
         if (isSearchEmpty(display, searching, this._activeSection)) {
             return this._renderNoMatch();
+        }
+        if (typeof this._activeSection === 'string' && this._activeSection.startsWith(DEFINITION_TAB_PREFIX)) {
+            // A definition tab: the filter already narrowed `definitions` to this
+            // tab's kind (and to the sub bar's term, if any).
+            return this._renderDefinitions(payload.definitions);
         }
         switch (this._activeSection) {
             case SECTION_IDS.ACTIONS:
@@ -1806,6 +2196,88 @@ export class KnowledgePanel {
     }
 
     /**
+     * Resolves an event target to the registry entry a definition facet links to
+     * (the `.knowledge-facet-link` button, or an ancestor of one). Returns null
+     * when the target is not a facet link, or when the link names no target.
+     * @param {EventTarget|null} target - event.target.
+     * @returns {{kind: string, id: string}|null}
+     * @private
+     */
+    _facetReferenceForTarget(target) {
+        if (!target || typeof target.closest !== 'function') return null;
+        const link = target.closest('.knowledge-facet-link');
+        const kind = link ? link.dataset.refKind : null;
+        const id = link ? link.dataset.refId : null;
+        if (typeof kind !== 'string' || kind.length === 0) return null;
+        if (typeof id !== 'string' || id.length === 0) return null;
+        return { kind, id };
+    }
+
+    /**
+     * Jump to a definition a facet link named: the tab that kind is rendered on
+     * (`referenceTabIdOf` — the Materials tab for matter, the Internal Components
+     * tab for an organ, ...), then the same scroll-and-flash every other jump
+     * performs. A kind with no tab in this payload is a no-op: the reader stays
+     * on the card they were reading rather than landing on an empty screen.
+     * @param {string} kind - The target's registry kind (the link's data-ref-kind).
+     * @param {string} id - The target's entry id (the link's data-ref-id).
+     * @private
+     */
+    _jumpToDefinitionReference(kind, id) {
+        const tabId = referenceTabIdOf(this._payload, kind);
+        if (tabId === null) return;
+        // Three of the codex views already own a jump for their own card family
+        // (`_jumpToMaterial`, `_jumpToItem`, `_jumpToAction` — they predate the
+        // definition tabs). A facet naming a material, an item or an action goes
+        // through that door, so one card family has exactly one flasher and a facet
+        // link cannot disagree with the chip click that opens the same card.
+        if (tabId === SECTION_IDS.MATERIALS) { this._jumpToMaterial(id); return; }
+        if (tabId === SECTION_IDS.ITEMS) { this._jumpToItem(id); return; }
+        if (tabId === SECTION_IDS.ACTIONS) { this._jumpToAction(id); return; }
+        this._prepareSearchForTarget(tabId, id);
+        this._activeSection = tabId;
+        this._render();
+        // The Crafting & Items view renders recipe cards, not definition cards;
+        // every other destination of a facet link is a `def:<kind>` tab of cards.
+        if (tabId === SECTION_IDS.RECIPES) {
+            this._flashCard('.knowledge-recipe-card[data-recipe]', 'recipe', id,
+                'knowledge-recipe-highlight');
+        } else {
+            this._flashCard('.knowledge-entity-card[data-definition]', 'definition', id,
+                'knowledge-entity-highlight');
+        }
+    }
+
+    /**
+     * Scroll the card a jump named into view and flash it for 1.5 s. `selector`
+     * scopes the search to the card family the tab being opened renders, `attr` is
+     * the data attribute carrying the target's identity on such a card, and
+     * `highlightClass` the flash that family is styled with. Only the card the
+     * facet named lights up, never every card mentioning it.
+     * @param {string} selector - Card family to search.
+     * @param {string} attr - Data attribute (camelCased) holding the target id.
+     * @param {string} value - The target the facet named.
+     * @param {string} highlightClass - The flash class of that card family.
+     * @private
+     */
+    _flashCard(selector, attr, value, highlightClass) {
+        if (!value || !this._content) return;
+        const cards = this._content.querySelectorAll(selector);
+        const card = Array.from(cards).find((c) => c.dataset[attr] === value);
+        if (!card) return;
+        if (this._highlightTimer !== null) {
+            clearTimeout(this._highlightTimer);
+            this._highlightTimer = null;
+        }
+        card.classList.add(highlightClass);
+        card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        this._highlightTimer = setTimeout(() => {
+            card.classList.remove(highlightClass);
+            this._highlightTimer = null;
+        }, 1500);
+    }
+
+    /**
      * Jumps to the Items tab and flashes the item named by a recipe ref.
      * @param {string} itemType - Raw item type.
      * @private
@@ -1968,7 +2440,7 @@ export class KnowledgePanel {
             const desc = recipe.description !== null
                 ? `<div class="knowledge-card-desc">${escapeHtml(recipe.description)}</div>`
                 : '';
-            return `<div class="knowledge-recipe-card">` +
+            return `<div class="knowledge-recipe-card" data-recipe="${escapeHtml(recipe.id)}">` +
                 `<div class="knowledge-card-name">${escapeHtml(recipe.name)}</div>` +
                 desc +
                 `<div class="knowledge-ref-line">${renderRecipeRefs(recipe.inputs)}` +
@@ -2028,6 +2500,77 @@ export class KnowledgePanel {
                 `</div>`;
         });
         return `<div class="knowledge-card-grid knowledge-items">${cards.join('')}</div>`;
+    }
+
+    /**
+     * A definition tab: the entries of ONE registry kind, in the payload's order
+     * (the server sorts by id inside a kind). The tab names the kind, so the cards
+     * carry no group heading any more — the heading one flat tab needed to separate
+     * seventeen families in a single scroll is the tab itself now
+     * (wiki/subMDs/frontend/knowledge_viewer.md Sec. 12). Each card keeps the
+     * entry's verbatim definition in a collapsed `<details>`, the appendix
+     * convention the Actions cards use.
+     * @param {*} rawDefinitions - The `definitions` rows of the active kind.
+     * @returns {string} HTML (the tab's empty state when the registry has nothing).
+     * @private
+     */
+    _renderDefinitions(rawDefinitions) {
+        const rows = shapeDefinitions(rawDefinitions);
+        if (rows.length === 0) {
+            return this._renderEmpty(KNOWLEDGE_LABELS.EMPTY_DEFINITION);
+        }
+        const cards = rows.map((row) => this._renderDefinitionCard(row)).join('');
+        return `<div class="knowledge-entity-group" data-kind="${escapeHtml(rows[0].kind)}">` +
+            `<div class="knowledge-card-grid">${cards}</div>` +
+            `</div>`;
+    }
+
+    /**
+     * One definition card: the entry's name (or its id, when the registry declares
+     * no name — the codex never invents a label), the resolved facets the server
+     * read off the entry, and the full definition as a collapsed appendix. The
+     * id is always shown: it is what a mod, a blueprint or a `chunk_<material>`
+     * type is written by, and hiding it behind the display name would make the
+     * card unreadable against the data files.
+     *
+     * A facet value is rendered by `renderFacetValue`: where the facet names an
+     * entry of another registry, that name is a link into the tab the kind lives
+     * on. The card carries its own id (`data-definition`) so such a jump can light
+     * up exactly the card it landed on, the way an item or material card already
+     * carries `data-item` / `data-material`.
+     * @param {Object} row - A shaped definition row.
+     * @returns {string} HTML.
+     * @private
+     */
+    _renderDefinitionCard(row) {
+        const title = row.name ?? row.id;
+        const idLine = row.name !== null && row.name !== row.id
+            ? `<div class="knowledge-entity-id">${escapeHtml(row.id)}</div>`
+            : '';
+        const desc = row.description !== null
+            ? `<div class="knowledge-card-desc">${escapeHtml(row.description)}</div>`
+            : '';
+        const facets = row.facets.length > 0
+            ? `<div class="knowledge-entity-facets">${row.facets.map((facet) =>
+                `<div class="knowledge-entity-facet">` +
+                `<span class="knowledge-entity-facet-label">${escapeHtml(facet.label)}</span>` +
+                `<span class="knowledge-entity-facet-value">${renderFacetValue(facet)}</span>` +
+                `</div>`).join('')}</div>`
+            : '';
+        const body = renderDefinitionBody(row.definition);
+        // One label for the appendix, shared with the Actions cards: the two
+        // blocks say the same thing ("every field, as the data has it").
+        const raw = body === ''
+            ? ''
+            : `<details class="knowledge-entity-raw"><summary>${escapeHtml(ACTION_UI_LABELS.RAW)}</summary>` +
+              `<div class="knowledge-item-fields">${body}</div></details>`;
+        return `<div class="knowledge-entity-card" data-definition="${escapeHtml(row.id)}">` +
+            `<div class="knowledge-card-name">${escapeHtml(title)}</div>` +
+            idLine +
+            desc +
+            facets +
+            raw +
+            `</div>`;
     }
 
     /**
