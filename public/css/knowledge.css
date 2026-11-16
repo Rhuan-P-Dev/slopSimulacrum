@@ -54,6 +54,48 @@
     box-shadow: var(--glow);
 }
 
+/*
+ * A family row of the bar: the caption of one group of registry kinds, its tabs
+ * beside it (Parts: Components | Internal Parts | Sensitive Parts). The caption
+ * is a fixed column, so the rows read as a list of families rather than as a
+ * second wall of buttons (wiki/subMDs/frontend/knowledge_viewer.md Sec. 12).
+ */
+.knowledge-tab-family {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    margin-bottom: 6px;
+}
+
+.knowledge-tab-family-label {
+    flex: 0 0 92px;
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+}
+
+.knowledge-tab-family-tabs {
+    display: flex;
+    flex: 1 1 auto;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+/* A kind tab is a list of definitions; the view tabs of its family are assembled
+   readings, and the smaller size is what tells them apart inside one row. */
+.knowledge-tab--kind {
+    flex: 0 0 auto;
+    font-size: 11px;
+    padding: 4px 10px;
+}
+
+/* A row of chips shares its line with the family's view tabs. `flex: 1` would give
+   three view tabs the whole width and push every chip to a line below. */
+.knowledge-tab-family-tabs .knowledge-tab {
+    flex: 0 0 auto;
+}
+
 .knowledge-tab:focus-visible {
     outline: 2px solid var(--neon-green);
     outline-offset: 2px;
@@ -163,9 +205,15 @@
 
 /* ---- Tab 1: material cards ---------------------------------------------------- */
 
+/*
+ * The floor of a card column is 220px OR the panel's own width, whichever is
+ * smaller: a plain `minmax(220px, 1fr)` keeps the column at 220px even in a
+ * narrower panel, and the card then overflows the panel edge. Same class of bug
+ * as the facet overlap above.
+ */
 .knowledge-card-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(min(220px, 100%), 1fr));
     gap: 8px;
 }
 
@@ -237,6 +285,18 @@
     display: flex;
     flex-direction: column;
     gap: 6px;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+/* The flash of a jump that landed on a recipe (the Crafting & Items view is the
+   only place these cards render, and the only way to reach one by name is a
+   facet link naming the machine's craft). A ring rather than a recoloured
+   border alone: this family is built on a 1px #333 border whose colour carries
+   no meaning, so a glow is what survives the end of a smooth scroll.
+   (wiki/subMDs/frontend/knowledge_viewer.md Sec. 12) */
+.knowledge-recipe-card.knowledge-recipe-highlight {
+    border-color: var(--neon-orange);
+    box-shadow: 0 0 0 1px var(--neon-orange), var(--glow-orange);
 }
 
 .knowledge-card-name {
@@ -843,4 +903,134 @@
 .knowledge-retry-btn:focus-visible {
     outline: 2px solid var(--neon-green);
     outline-offset: 2px;
+}
+
+/* ---------------------------------------------------------------------------
+   The definition tabs (Sec. 12): one tab per registry kind, one card per entry,
+   carried by the same grid the Items and Actions tabs use. Which registry the
+   reader is looking at is the tab's own business, so the cards need no heading.
+   --------------------------------------------------------------------------- */
+
+.knowledge-entity-group {
+    margin-bottom: 18px;
+}
+
+.knowledge-entity-card {
+    border: 1px solid #333;
+    border-radius: 4px;
+    background: var(--panel-bg);
+    padding: 6px 8px;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    /* A grid item is `min-width: auto`, so a facet too long to break would widen
+       the card past its grid area and over its neighbour. Let it shrink. */
+    min-width: 0;
+}
+
+/* Definition card highlight (flash on jump from a facet link click). */
+.knowledge-entity-card.knowledge-entity-highlight {
+    border-color: var(--neon-green);
+    box-shadow: var(--glow);
+}
+
+/*
+ * A name inside a facet that points at another registry entry (the matter a
+ * component is made of, the organ it carries). Underlined text rather than a
+ * chip: a facet is a sentence, and 24 chips in a row would stop being one. The
+ * jump target is the kind + id the server named, never a guess from the text.
+ */
+.knowledge-facet-link {
+    border: 0;
+    border-bottom: 1px dotted var(--neon-green);
+    background: none;
+    color: var(--neon-green);
+    padding: 0;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: inherit;
+    text-align: left;
+}
+
+.knowledge-facet-link:hover {
+    background: var(--neon-green);
+    color: var(--bg-black);
+}
+
+.knowledge-facet-link:focus-visible {
+    outline: 2px solid var(--neon-green);
+    outline-offset: 2px;
+}
+
+/* The raw registry key under the display name: what a mod or a blueprint writes. */
+.knowledge-entity-id {
+    color: var(--text-dim);
+    font-family: monospace;
+    font-size: 0.8em;
+    margin-bottom: 4px;
+}
+
+.knowledge-entity-facets {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin-bottom: 6px;
+}
+
+/*
+ * One facet is one sentence: a label column and the value beside it, and the row
+ * WRAPS rather than overflowing. WHY: the label is a monospace registry key
+ * (`Pleasure.pleasure`) and the value a clause ("starts 0, cap 100, drains 1 per
+ * turn"). Neither could shrink below its own min-content -- `word-break` does not
+ * lower a flex item's min-content size, only `overflow-wrap: anywhere` does -- so
+ * the pair pushed past the card border and painted over the card next to it in
+ * the grid. `min-width: 0` lets the value shrink; `flex-wrap` drops it under the
+ * label when the column cannot hold both (Sec. 12).
+ */
+.knowledge-entity-facet {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0 6px;
+    font-size: 0.85em;
+    min-width: 0;
+}
+
+.knowledge-entity-facet-label {
+    color: var(--text-dim);
+    font-family: monospace;
+    flex: 0 1 auto;
+    min-width: 84px;
+    overflow-wrap: anywhere;
+}
+
+.knowledge-entity-facet-value {
+    color: var(--text-main);
+    flex: 1 1 120px;
+    min-width: 0;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+
+/* The collapsed appendix (every field, as the data has it), the Actions convention. */
+.knowledge-entity-raw {
+    border-top: 1px solid #222;
+    padding-top: 6px;
+}
+
+.knowledge-entity-raw > summary {
+    color: var(--text-dim);
+    font-size: 0.8em;
+    cursor: pointer;
+}
+
+.knowledge-entity-raw > summary:hover {
+    color: var(--text-main);
+}
+
+.knowledge-entity-raw[open] > summary {
+    margin-bottom: 4px;
+}
+
+/* A definition that is a bare scalar (sensitiveParts): the value, alone. */
+.knowledge-entity-value {
+    color: var(--text-main);
+    font-size: 0.85em;
 }

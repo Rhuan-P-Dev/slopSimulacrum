@@ -108,6 +108,14 @@ describe('knowledge markup integrity', () => {
         expect(emitted.has('knowledge-search-input')).toBe(true);
         expect(emitted.has('knowledge-refine-input')).toBe(true);
         expect(emitted.has('knowledge-action-effect-text')).toBe(true);
+        // The Entities family (Sec. 12) is the newest member of the same pin.
+        expect(emitted.has('knowledge-entity-card')).toBe(true);
+        expect(emitted.has('knowledge-entity-facet-label')).toBe(true);
+        // The family rows of the definition bar (one row of kind tabs under one
+        // caption) are newer still.
+        expect(emitted.has('knowledge-tab-family')).toBe(true);
+        expect(emitted.has('knowledge-tab-family-label')).toBe(true);
+        expect(emitted.has('knowledge-tab-family-tabs')).toBe(true);
     });
 
     it('every class the renderer emits is styled somewhere, or is a declared hook', () => {
@@ -136,6 +144,41 @@ describe('knowledge markup integrity', () => {
         const gone = UNSTYLED_HOOKS.filter((cls) => !emitted.has(cls) && !INDEX_HTML.includes(cls));
         expect(gone).toEqual([]);
     });
+
+    it('a kind tab reads as a member of a family, not as a section tab', () => {
+        // The bar's second row must not compete with the first: the section tabs
+        // stretch across it, a kind tab takes its own width at a smaller size, and
+        // the family caption holds a column so the rows line up
+        // (wiki/subMDs/frontend/knowledge_viewer.md Sec. 12).
+        const sectionRule = KNOWLEDGE_CSS.match(/\.knowledge-tab\s*{[^}]*}/)[0];
+        const kindRule = KNOWLEDGE_CSS.match(/\.knowledge-tab--kind\s*{[^}]*}/)[0];
+        const labelRule = KNOWLEDGE_CSS.match(/\.knowledge-tab-family-label\s*{[^}]*}/)[0];
+        expect(sectionRule).toMatch(/flex:\s*1/);
+        expect(kindRule).toMatch(/flex:\s*0 0 auto/);
+        expect(Number((kindRule.match(/font-size:\s*(\d+)px/) || [0, 99])[1]))
+            .toBeLessThan(Number((sectionRule.match(/font-size:\s*([\d.]+)em/) || [0, 99])[1]) * 16);
+        expect(labelRule).toMatch(/flex:\s*0 0/);
+    });
+
+    it('a facet link reads as a word of the sentence, and the card it lands on lights up', () => {
+        // The two classes a facet-link jump needs (knowledge_viewer.md Sec. 12).
+        // The name inside a facet is underlined text, not a chip -- a composition
+        // line of 24 chips would stop being a sentence -- and the card the jump
+        // lands on flashes the same neon the material, item and action cards do.
+        expect(emitted.has('knowledge-facet-link')).toBe(true);
+        const linkRule = KNOWLEDGE_CSS.match(/\.knowledge-facet-link\s*{[^}]*}/)[0];
+        expect(linkRule).toMatch(/cursor:\s*pointer/);
+        expect(linkRule).toMatch(/background:\s*none/);
+        const flashRule = KNOWLEDGE_CSS
+            .match(/\.knowledge-entity-card\.knowledge-entity-highlight\s*{[^}]*}/)[0];
+        expect(flashRule).toMatch(/border-color:\s*var\(--neon-green\)/);
+        expect(flashRule).toMatch(/box-shadow:\s*var\(--glow\)/);
+        // A craft named from a machine's card lands in the Crafting & Items view,
+        // whose cards are a different family and so flash with their own rule.
+        const recipeFlash = KNOWLEDGE_CSS
+            .match(/\.knowledge-recipe-card\.knowledge-recipe-highlight\s*{[^}]*}/)[0];
+        expect(recipeFlash).toMatch(/box-shadow:[^;]*var\(--glow-orange\)/);
+    });
 });
 
 describe('knowledge css parses and blocks render as blocks', () => {
@@ -163,6 +206,28 @@ describe('knowledge css parses and blocks render as blocks', () => {
         const between = Number((listRule.match(/gap:\s*(\d+)px/) || [0, 0])[1]);
         const inside = Number((blockRule.match(/row-gap:\s*(\d+)px/) || [0, 0])[1]);
         expect(between).toBeGreaterThan(inside);
+    });
+
+    it('a facet never overflows its card (label and value shrink, then wrap)', () => {
+        // The overlap this pins, measured on the shipped data: the entity-attribute
+        // card of `maleDroid` carries the monospace key `Pleasure.pleasure` beside
+        // "starts 0, cap 100, drains 1 per turn". A flex item's automatic minimum
+        // size is its min-content, and `word-break` does not lower that number --
+        // only `overflow-wrap: anywhere` does -- so the pair could not shrink into
+        // a 220px card and painted over the neighbour instead.
+        const row = (KNOWLEDGE_CSS.match(/\.knowledge-entity-facet\s*{[^}]*}/) || [''])[0];
+        const label = (KNOWLEDGE_CSS.match(/\.knowledge-entity-facet-label\s*{[^}]*}/) || [''])[0];
+        const value = (KNOWLEDGE_CSS.match(/\.knowledge-entity-facet-value\s*{[^}]*}/) || [''])[0];
+        const card = (KNOWLEDGE_CSS.match(/\.knowledge-entity-card\s*{[^}]*}/) || [''])[0];
+        const grid = (KNOWLEDGE_CSS.match(/\.knowledge-card-grid\s*{[^}]*}/) || [''])[0];
+        expect(`facet row: ${row}`).toMatch(/flex-wrap:\s*wrap/);
+        expect(`facet row: ${row}`).toMatch(/min-width:\s*0/);
+        expect(`facet label: ${label}`).toMatch(/overflow-wrap:\s*anywhere/);
+        expect(`facet value: ${value}`).toMatch(/min-width:\s*0/);
+        expect(`facet value: ${value}`).toMatch(/overflow-wrap:\s*anywhere/);
+        expect(`entity card: ${card}`).toMatch(/min-width:\s*0/);
+        // A column floor may never exceed the panel that holds it.
+        expect(`card grid: ${grid}`).toMatch(/minmax\(\s*min\(\s*220px,\s*100%\s*\)\s*,\s*1fr\s*\)/);
     });
 
     it('an unread declaration is red, and the failure set has its own bar', () => {
